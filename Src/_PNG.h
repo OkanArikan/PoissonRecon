@@ -29,7 +29,7 @@ DAMAGE.
 #ifndef PNG_INCLUDED
 #define PNG_INCLUDED
 
-#include "PNG/png.h"
+#include "png.h"
 
 struct PNGReader : public ImageReader
 {
@@ -57,6 +57,7 @@ protected:
 	png_structp _png_ptr;
 	png_infop _info_ptr;
 	unsigned int _currentRow;
+	unsigned int _width;
 };
 
 #include "PNG.inl"
