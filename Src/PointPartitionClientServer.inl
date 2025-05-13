@@ -30,7 +30,7 @@ template< typename Real , unsigned int Dim >
 size_t _SampleCount( std::string in , std::vector< PlyProperty > &auxProperties )
 {
 	char *ext = GetFileExtension( in.c_str() );
-	if( strcasecmp( ext , "ply" ) ) ERROR_OUT( "Only .ply files supported: "  , in );
+	if( strcasecmp( ext , "ply" ) ) MK_THROW( "Only .ply files supported: "  , in );
 	delete[] ext;
 
 	size_t vNum;
@@ -38,9 +38,9 @@ size_t _SampleCount( std::string in , std::vector< PlyProperty > &auxProperties 
 	Factory factory;
 	bool *readFlags = new bool[ factory.plyReadNum() ];
 	int fileType = PLY::ReadVertexHeader( in , factory , readFlags , auxProperties , vNum );
-	if( fileType==PLY_ASCII ) ERROR_OUT( "Point set must be in binary format" );
-	if( !factory.template plyValidReadProperties<0>( readFlags ) ) ERROR_OUT( "Ply file does not contain positions" );
-	if( !factory.template plyValidReadProperties<1>( readFlags ) ) ERROR_OUT( "Ply file does not contain normals" );
+	if( fileType==PLY_ASCII ) MK_THROW( "Point set must be in binary format" );
+	if( !factory.template plyValidReadProperties<0>( readFlags ) ) MK_THROW( "Ply file does not contain positions" );
+	if( !factory.template plyValidReadProperties<1>( readFlags ) ) MK_THROW( "Ply file does not contain normals" );
 	delete[] readFlags;
 	return vNum;
 }
@@ -55,26 +55,30 @@ void _ProcessPLY( std::string in , std::pair< size_t , size_t > range , const Fa
 	int file_type;
 
 	PlyFile *ply = PlyFile::Read( in , elist , file_type , version );
-	if( !ply ) ERROR_OUT( "Could not create ply file for reading: " , in );
-	if( file_type==PLY_ASCII ) ERROR_OUT( "Only binary file type supported" );
+	if( !ply ) MK_THROW( "Could not create ply file for reading: " , in );
+	if( file_type==PLY_ASCII ) MK_THROW( "Only binary file type supported" );
 
 	size_t vCount;
 	std::vector< PlyProperty > plist = ply->get_element_description( std::string( "vertex" ) , vCount );
-	if( !plist.size() ) ERROR_OUT( "Could not read element properties: vertex" );
+	if( !plist.size() ) MK_THROW( "Could not read element properties: vertex" );
 	if( range.second==-1 ) range.second = vCount;
-	if( range.first>=range.second ) ERROR_OUT( "Bad Range: [ " , range.first , " , " , range.second , " )" );
+	if( range.first>=range.second ) MK_THROW( "Bad Range: [ " , range.first , " , " , range.second , " )" );
 	if( range.second>vCount )
 	{
-		WARN( "Max range too large, resetting" );
+		MK_WARN( "Max range too large, resetting" );
 		range.second = vCount;
 	}
 
 	size_t leftToReadCount = range.second - range.first;
-	size_t vSize = factory.isStaticallyAllocated() ? sizeof( Vertex ) : factory.bufferSize();
+	size_t vSize = 0;
+	if constexpr( Factory::IsStaticallyAllocated() ) vSize = sizeof( Vertex );
+	else                                             vSize = factory.bufferSize();
 
 	for( unsigned int i=0 ; i<factory.plyReadNum() ; i++)
 	{
-		PlyProperty prop = factory.isStaticallyAllocated() ? factory.plyStaticReadProperty(i) : factory.plyReadProperty(i);
+		PlyProperty prop;
+		if constexpr( Factory::IsStaticallyAllocated() ) prop = factory.plyStaticReadProperty(i);
+		else                                             prop = factory.plyReadProperty(i);
 		ply->get_property( std::string( "vertex" ) , &prop );
 	}
 
@@ -91,7 +95,7 @@ void _ProcessPLY( std::string in , std::pair< size_t , size_t > range , const Fa
 	Pointer( char ) buffer = NewPointer< char >( factory.bufferSize() );
 	for( size_t i=range.first ; i<range.second ; i++ )
 	{
-		if( factory.isStaticallyAllocated() ) ply->get_element( (void *)&vertex );
+		if constexpr( Factory::IsStaticallyAllocated() ) ply->get_element( (void *)&vertex );
 		else
 		{
 			ply->get_element( PointerAddress( buffer ) );
@@ -157,15 +161,15 @@ std::vector< size_t > _PartitionIntoSlabs( std::string in , std::string dir , st
 	};
 	_ProcessPLY( in , range , factory , vertexFunctor );
 	for( unsigned int i=0 ; i<slabs ; i++ ) delete outStreams[i];
-	if( outOfRangeCount ) WARN( "Out of range count: " , outOfRangeCount );
+	if( outOfRangeCount ) MK_WARN( "Out of range count: " , outOfRangeCount );
 	return slabSizes;
 }
 
-template< typename Real , unsigned int Dim , typename Factory >
-PointPartition::Extent< Real > _GetExtent( std::string in , std::pair< size_t , size_t > range , const Factory &factory )
+template< typename Real , unsigned int Dim , typename Factory , bool ExtendedAxes=true >
+PointExtent::Extent< Real , Dim , ExtendedAxes > _GetExtent( std::string in , std::pair< size_t , size_t > range , const Factory &factory )
 {
 	using Vertex = typename Factory::VertexType;
-	PointPartition::Extent< Real > extent;
+	PointExtent::Extent< Real , Dim , ExtendedAxes > extent;
 	_ProcessPLY( in , range , factory , [&]( const Vertex &vertex ){ extent.add( vertex.template get<0>() ); } );
 	return extent;
 }
@@ -174,7 +178,7 @@ template< typename Real , unsigned int Dim >
 std::vector< PlyProperty > _GetUnprocessedProperties( std::string in )
 {
 	char *ext = GetFileExtension( in.c_str() );
-	if( strcasecmp( ext , "ply" ) ) ERROR_OUT( "Expected .ply file" );
+	if( strcasecmp( ext , "ply" ) ) MK_THROW( "Expected .ply file" );
 	delete[] ext;
 
 	std::vector< PlyProperty > unprocessedProperties;
@@ -183,8 +187,8 @@ std::vector< PlyProperty > _GetUnprocessedProperties( std::string in )
 		Factory factory;
 		bool *readFlags = new bool[ factory.plyReadNum() ];
 		PLY::ReadVertexHeader( in , factory , readFlags , unprocessedProperties );
-		if( !factory.template plyValidReadProperties<0>( readFlags ) ) ERROR_OUT( "Ply file does not contain positions" );
-		if( !factory.template plyValidReadProperties<1>( readFlags ) ) ERROR_OUT( "Ply file does not contain normals" );
+		if( !factory.template plyValidReadProperties<0>( readFlags ) ) MK_THROW( "Ply file does not contain positions" );
+		if( !factory.template plyValidReadProperties<1>( readFlags ) ) MK_THROW( "Ply file does not contain normals" );
 		delete[] readFlags;
 	}
 	return unprocessedProperties;
@@ -238,29 +242,14 @@ std::pair< PointPartition::PointSetInfo< Real , Dim > , PointPartition::Partitio
 	// Phase 2 //
 	/////////////
 	// Merge the clients' extents and get the direction of maximal extent
-	PointPartition::Extent< Real > e;
-	unsigned int idx;
+	PointExtent::Extent< Real , Dim > e;
+	for( unsigned int c=0 ; c<clientSockets.size() ; c++ )
 	{
-		for( unsigned int c=0 ; c<clientSockets.size() ; c++ )
-		{
-			PointPartition::Extent< Real > _e;
-			SocketStream( clientSockets[c] ).read( _e );
-			e = e + _e;
-		}
-		idx = 0;
-		for( unsigned int d=1 ; d<PointPartition::Extent< Real >::DirectionN ; d++ ) if( e.extents[d].second - e.extents[d].first > e.extents[idx].second - e.extents[idx].first ) idx = d;
+		PointExtent::Extent< Real , Dim > _e;
+		SocketStream( clientSockets[c] ).read( _e );
+		e = e + _e;
 	}
-
-	// Compute the transformation taking the points to the unit cube
-	{
-		XForm< Real , Dim+1 > R = XForm< Real , Dim+1 >::Identity();
-		for( unsigned int c=0 ; c<Dim ; c++ ) for( unsigned int r=0 ; r<Dim ; r++ ) R(r,c) = PointPartition::Extent< Real >::Directions[ PointPartition::Extent< Real >::Frames[idx][c] ][r];
-
-		Point< Real , Dim >  bBox[2];
-		for( unsigned int d=0 ; d<3 ; d++ ) bBox[0][d] = e.extents[ PointPartition::Extent< Real >::Frames[idx][d] ].first , bBox[1][d] = e.extents[ PointPartition::Extent< Real >::Frames[idx][d] ].second;
-
-		pointSetInfo.modelToUnitCube = Reconstructor::GetBoundingBoxXForm( bBox[0] , bBox[1] , clientPartitionInfo.scale ) * R;
-	}
+	pointSetInfo.modelToUnitCube = PointExtent::GetXForm( e , clientPartitionInfo.scale , clientPartitionInfo.sliceDir );
 
 	// Send the transformation to the clients
 	for( unsigned int c=0 ; c<clientSockets.size() ; c++ ) SocketStream( clientSockets[c] ).write( pointSetInfo.modelToUnitCube );
@@ -273,7 +262,7 @@ std::pair< PointPartition::PointSetInfo< Real , Dim > , PointPartition::Partitio
 	{
 		std::vector< size_t > slabSizes;
 		SocketStream( clientSockets[c] ).read( slabSizes );
-		if( slabSizes.size()!=clientPartitionInfo.slabs ) ERROR_OUT( "Unexpected number of slabs: " , slabSizes.size() , " != " , clientPartitionInfo.slabs );
+		if( slabSizes.size()!=clientPartitionInfo.slabs ) MK_THROW( "Unexpected number of slabs: " , slabSizes.size() , " != " , clientPartitionInfo.slabs );
 		for( unsigned int i=0 ; i<clientPartitionInfo.slabs ; i++ ) pointSetInfo.pointsPerSlab[i] += slabSizes[i];
 	}
 	if( clientPartitionInfo.verbose )
@@ -328,7 +317,7 @@ void _RunClients
 
 	int maxFiles = 2*clientPartitionInfo.slabs;
 #ifdef _WIN32
-	if( _setmaxstdio( maxFiles )!=maxFiles ) ERROR_OUT( "Could not set max file handles: " , maxFiles );
+	if( _setmaxstdio( maxFiles )!=maxFiles ) MK_THROW( "Could not set max file handles: " , maxFiles );
 #else // !_WIN32
 	struct rlimit rl;
 	getrlimit( RLIMIT_NOFILE , &rl ); 
@@ -348,7 +337,7 @@ void _RunClients
 		SocketStream( serverSockets[i] ).read( ranges[i] );
 		if( clientPartitionInfo.verbose ) std::cout << "Got range: " << MemoryInfo::PeakMemoryUsageMB() << " (MB)" << std::endl;
 		// Get the extent and send to the client
-		PointPartition::Extent< Real > e = _GetExtent< Real , Dim >( clientPartitionInfo.in , ranges[i] , factory );
+		PointExtent::Extent< Real , Dim > e = _GetExtent< Real , Dim >( clientPartitionInfo.in , ranges[i] , factory );
 		SocketStream( serverSockets[i] ).write( e );
 		if( clientPartitionInfo.verbose ) std::cout << "Sent extent: " << MemoryInfo::PeakMemoryUsageMB() << " (MB)" << std::endl;
 	}
@@ -426,7 +415,7 @@ void RunClients( std::vector< Socket > &serverSockets )
 // ClientPartitionInfo //
 /////////////////////////
 template< typename Real >
-ClientPartitionInfo< Real >::ClientPartitionInfo( void ) : scale((Real)1.1) , verbose(false) , slabs(0) , filesPerDir(-1) , bufferSize(BUFFER_IO) , clientCount(0) {}
+ClientPartitionInfo< Real >::ClientPartitionInfo( void ) : scale((Real)1.1) , sliceDir(-1) , verbose(false) , slabs(0) , filesPerDir(-1) , bufferSize(BUFFER_IO) , clientCount(0) {}
 
 template< typename Real >
 ClientPartitionInfo< Real >::ClientPartitionInfo( BinaryStream &stream )
@@ -438,16 +427,17 @@ ClientPartitionInfo< Real >::ClientPartitionInfo( BinaryStream &stream )
 		b = _b!=0;
 		return true;
 	};
-	if( !stream.read( in ) ) ERROR_OUT( "Failed to read in" );
-	if( !stream.read( tempDir ) ) ERROR_OUT( "Failed to read temp dir" );
-	if( !stream.read( outDir ) ) ERROR_OUT( "Failed to read out dir" );
-	if( !stream.read( outHeader ) ) ERROR_OUT( "Failed to read out header" );
-	if( !stream.read( slabs ) ) ERROR_OUT( "Failed to read slabs" );
-	if( !stream.read( filesPerDir ) ) ERROR_OUT( "Failed to read files per dir" );
-	if( !stream.read( bufferSize ) ) ERROR_OUT( "Failed to read buffer size" );
-	if( !stream.read( scale ) ) ERROR_OUT( "Failed to read scale" );
-	if( !stream.read( clientCount ) ) ERROR_OUT( "Failed to read client count" );
-	if( !ReadBool( verbose ) ) ERROR_OUT( "Failed to read verbose flag" );
+	if( !stream.read( in ) ) MK_THROW( "Failed to read in" );
+	if( !stream.read( tempDir ) ) MK_THROW( "Failed to read temp dir" );
+	if( !stream.read( outDir ) ) MK_THROW( "Failed to read out dir" );
+	if( !stream.read( outHeader ) ) MK_THROW( "Failed to read out header" );
+	if( !stream.read( slabs ) ) MK_THROW( "Failed to read slabs" );
+	if( !stream.read( filesPerDir ) ) MK_THROW( "Failed to read files per dir" );
+	if( !stream.read( bufferSize ) ) MK_THROW( "Failed to read buffer size" );
+	if( !stream.read( scale ) ) MK_THROW( "Failed to read scale" );
+	if( !stream.read( clientCount ) ) MK_THROW( "Failed to read client count" );
+	if( !stream.read( sliceDir ) ) MK_THROW( "Failed to read slice direction" );
+	if( !ReadBool( verbose ) ) MK_THROW( "Failed to read verbose flag" );
 }
 
 template< typename Real >
@@ -467,5 +457,6 @@ void ClientPartitionInfo< Real >::write( BinaryStream &stream ) const
 	stream.write( bufferSize );
 	stream.write( scale );
 	stream.write( clientCount );
+	stream.write( sliceDir );
 	WriteBool( verbose );
 }

@@ -43,6 +43,8 @@ DAMAGE.
 
 #define DEFAULT_DIMENSION 3
 
+using namespace PoissonRecon;
+
 enum MergeSlabType
 {
 	NONE ,
@@ -54,13 +56,13 @@ enum MergeSlabType
 
 const std::string MergeSlabNames[] = { "none" , "function" , "topology" , "seamless" };
 
-cmdLineParameter< std::string >
+CmdLineParameter< std::string >
 	AddressPrefix( "prefix" ) ,
 	In( "in" ) ,
 	TempDir( "tempDir" ) ,
 	Out( "out" );
 
-cmdLineParameter< int >
+CmdLineParameter< int >
 	ClientCount( "count" ) ,
 	Port( "port" , 0 ) ,
 	Verbose( "verbose" , 0 ) ,
@@ -73,7 +75,7 @@ cmdLineParameter< int >
 	BaseVCycles( "vCycles" , 1 ) ,
 	KernelDepth( "kernelDepth" ) ,
 	BaseDepth( "baseDepth" , 5 ) ,
-	SolveDepth( "solveDepth" ) ,
+	SolveDepth( "solveDepth" , -1 ) ,
 	PadSize( "pad" , 4 ) ,
 	BufferSize( "buffer" , BUFFER_IO ) ,
 	Depth( "depth" , 8 ) ,
@@ -81,36 +83,35 @@ cmdLineParameter< int >
 	FilesPerDir( "filesPerDir" , -1 ) ,
 	MaxMemoryGB( "maxMemory" , 0 ) ,
 	PeakMemorySampleMS( "sampleMS" , 10 ) ,
-#ifdef _OPENMP
-	ParallelType( "parallel" , (int)ThreadPool::OPEN_MP ) ,
-#else // !_OPENMP
-	ParallelType( "parallel" , (int)ThreadPool::THREAD_POOL ) ,
-#endif // _OPENMP
-	ScheduleType( "schedule" , (int)ThreadPool::DefaultSchedule ) ,
-	ThreadChunkSize( "chunkSize" , (int)ThreadPool::DefaultChunkSize ) ,
+	ParallelType( "parallel" , 0 ) ,
+	ScheduleType( "schedule" , (int)ThreadPool::Schedule ) ,
+	ThreadChunkSize( "chunkSize" , (int)ThreadPool::ChunkSize ) ,
 	MergeSlabs( "merge" , MergeSlabType::SEAMLESS ) ,
-	Threads( "threads" , (int)std::thread::hardware_concurrency() ) ;
+	AlignmentDir( "alignDir" , -1 );
 
-cmdLineReadable
+CmdLineReadable
 	Performance( "performance" ) ,
 	NoLoadBalance( "noLoadBalance" ) ,
 	Density( "density" ) ,
 	LinearFit( "linearFit" ) ,
 	OutputVoxelGrid( "grid" ) ,
 	OutputBoundarySlices( "boundary" ) ,
+	GridCoordinates( "gridCoordinates" ) ,
+	KeepSeparate( "keepSeparate" ) ,
+	OutputSolution( "solution" ) ,
+	Confidence( "confidence" ) ,
 	ShowDiscontinuity( "showDiscontinuity" );
 
-cmdLineParameter< float >
+CmdLineParameter< float >
 	Scale( "scale" , 1.1f ) ,
 	Width( "width" , 0.f ) ,
-	Confidence( "confidence" , 0.f ) ,
-	ConfidenceBias( "confidenceBias" , 0.f ) ,
 	SamplesPerNode( "samplesPerNode" , 1.5f ) ,
 	DataX( "data" , 32.f ) ,
 	PointWeight( "pointWeight" ) ,
+	TargetValue( "targetValue" , 0.5f ) ,
 	CGSolverAccuracy( "cgAccuracy" , 1e-3f );
 
-cmdLineReadable* params[] =
+CmdLineReadable* params[] =
 {
 	&Port , &ClientCount , &AddressPrefix , &Performance , &Verbose ,
 	&In ,
@@ -119,6 +120,7 @@ cmdLineReadable* params[] =
 	&FilesPerDir ,
 	&TempDir ,
 	&Out ,
+	&KeepSeparate ,
 #ifdef FAST_COMPILE
 #else // !FAST_COMPILE
 	&Degree , &BType ,
@@ -127,11 +129,15 @@ cmdLineReadable* params[] =
 	&SolveDepth ,
 	&NoLoadBalance , &Density , &LinearFit ,
 	&MergeSlabs ,
-	&Width , &Confidence , &ConfidenceBias , &SamplesPerNode , &DataX , &PointWeight , &CGSolverAccuracy ,
-	&MaxMemoryGB , &ParallelType , &ScheduleType , &ThreadChunkSize , &Threads ,
+	&Width , &Confidence , &SamplesPerNode , &DataX , &PointWeight , &CGSolverAccuracy ,
+	&TargetValue ,
+	&MaxMemoryGB , &ParallelType , &ScheduleType , &ThreadChunkSize ,
 	&PeakMemorySampleMS ,
 	&OutputVoxelGrid ,
 	&OutputBoundarySlices ,
+	&GridCoordinates ,
+	&OutputSolution ,
+	&AlignmentDir ,
 	&ShowDiscontinuity ,
 	NULL
 };
@@ -141,7 +147,7 @@ void ShowUsage( char* ex )
 	printf( "Usage: %s\n" , ex );
 	printf( "\t --%s <input points>\n" , In.name );
 	printf( "\t --%s <networked temporary directory>\n" , TempDir.name );
-	printf( "\t --%s <output polygon mesh>\n" , Out.name );
+	printf( "\t --%s <output polygon mesh (header)>\n" , Out.name );
 	printf( "\t --%s <client count>\n" , ClientCount.name );
 
 	printf( "\t[--%s <preferred address prefix>]\n" , AddressPrefix.name );
@@ -164,13 +170,11 @@ void ShowUsage( char* ex )
 	printf( "\t[--%s <iterations>=%d]\n" , Iters.name , Iters.value );
 	printf( "\t[--%s <base MG solver v-cycles>=%d]\n" , BaseVCycles.name , BaseVCycles.value );
 	printf( "\t[--%s <cg solver accuracy>=%g]\n" , CGSolverAccuracy.name , CGSolverAccuracy.value );
+	printf( "\t[--%s <target value>=%f]\n" , TargetValue.name , TargetValue.value );
 	printf( "\t[--%s <interpolation weight>=%.3e * <b-spline degree>]\n" , PointWeight.name , Reconstructor::Poisson::WeightMultiplier );
-	printf( "\t[--%s <normal confidence exponent>=%f]\n" , Confidence.name , Confidence.value );
-	printf( "\t[--%s <normal confidence bias exponent>=%f]\n" , ConfidenceBias.name , ConfidenceBias.value );
 	printf( "\t[--%s <pull factor>=%f]\n" , DataX.name , DataX.value );
 	printf( "\t[--%s <pad size>=%d]\n" , PadSize.name , PadSize.value );
 	printf( "\t[--%s <buffer size>=%d]\n" , BufferSize.name , BufferSize.value );
-	printf( "\t[--%s <num threads>=%d]\n" , Threads.name , Threads.value );
 	printf( "\t[--%s <parallel type>=%d]\n" , ParallelType.name , ParallelType.value );
 	for( size_t i=0 ; i<ThreadPool::ParallelNames.size() ; i++ ) printf( "\t\t%d] %s\n" , (int)i , ThreadPool::ParallelNames[i].c_str() );
 	printf( "\t[--%s <schedue type>=%d]\n" , ScheduleType.name , ScheduleType.value );
@@ -181,13 +185,18 @@ void ShowUsage( char* ex )
 	printf( "\t[--%s <slab files per directory>=%u]\n" , FilesPerDir.name , (unsigned int)FilesPerDir.value );
 	printf( "\t[--%s <merge slab type>=%d]\n" , MergeSlabs.name , MergeSlabs.value );
 	for( unsigned int i=0 ; i<MergeSlabType::COUNT ; i++ )  printf( "\t\t%d] %s\n" , (int)i , MergeSlabNames[i].c_str() );
+	printf( "\t[--%s <alignment direction>=%d]\n" , AlignmentDir.name , AlignmentDir.value );
 	printf( "\t[--%s <verbosity>=%d]\n" , Verbose.name , Verbose.value );
+	printf( "\t[--%s]\n" , Confidence.name );
 	printf( "\t[--%s]\n" , NoLoadBalance.name );
 	printf( "\t[--%s]\n" , Density.name );
 	printf( "\t[--%s]\n" , LinearFit.name );
 	printf( "\t[--%s]\n" , OutputVoxelGrid.name );
 	printf( "\t[--%s]\n" , OutputBoundarySlices.name );
+	printf( "\t[--%s]\n" , GridCoordinates.name );
+	printf( "\t[--%s]\n" , OutputSolution.name );
 	printf( "\t[--%s]\n" , ShowDiscontinuity.name );
+	printf( "\t[--%s]\n" , KeepSeparate.name );
 
 	printf( "\t[--%s]\n" , Performance.name );
 }
@@ -271,7 +280,7 @@ std::vector< unsigned int > Reconstruct( unsigned int degree , const PointPartit
 	{
 		case 1: return Reconstruct< Real , Dim , BType , 1 >( pointSetInfo , partition , clientSockets , clientReconInfo );
 		case 2: return Reconstruct< Real , Dim , BType , 2 >( pointSetInfo , partition , clientSockets , clientReconInfo );
-		default: ERROR_OUT( "Only B-Splines of degree 1 - 2 are supported" );
+		default: MK_THROW( "Only B-Splines of degree 1 - 2 are supported" );
 	}
 	return std::vector< unsigned int >();
 }
@@ -289,7 +298,7 @@ std::vector< unsigned int > Reconstruct( BoundaryType bType , unsigned int degre
 		case BOUNDARY_FREE:      return Reconstruct< Real , Dim , BOUNDARY_FREE      >( degree , pointSetInfo , partition , clientSockets , clientReconInfo );
 		case BOUNDARY_NEUMANN:   return Reconstruct< Real , Dim , BOUNDARY_NEUMANN   >( degree , pointSetInfo , partition , clientSockets , clientReconInfo );
 		case BOUNDARY_DIRICHLET: return Reconstruct< Real , Dim , BOUNDARY_DIRICHLET >( degree , pointSetInfo , partition , clientSockets , clientReconInfo );
-		default: ERROR_OUT( "Not a valid boundary type: " , bType );
+		default: MK_THROW( "Not a valid boundary type: " , bType );
 	}
 	return std::vector< unsigned int >();
 }
@@ -301,12 +310,45 @@ void Merge
 	const std::vector< unsigned int > &sharedVertexCounts ,
 	std::string header ,
 	std::vector< Socket > &clientSockets ,
-	const MergePlyClientServer::ClientMergePlyInfo &clientMergePlyInfo
+	const MergePlyClientServer::ClientMergePlyInfo &clientMergePlyInfo ,
+	const std::pair< PointPartition::PointSetInfo< Real , Dim > , PointPartition::Partition > &pointSetInfoAndPartition
 )
 {
 	Timer timer;
 
-	MergePlyClientServer::RunServer< Real , Dim >( TempDir.value , TempDir.value , header , Out.value , clientSockets , sharedVertexCounts , clientMergePlyInfo , PeakMemorySampleMS.value );
+	std::function< std::vector< std::string > ( unsigned int ) > commentFunctor = [&]( unsigned int partition )
+		{
+			if( partition==-1 ) return std::vector< std::string >();
+			else
+			{
+				Real res = (Real)( 1<<PartitionDepth.value );
+				std::pair< unsigned int , unsigned int > range = pointSetInfoAndPartition.second.range( partition );
+				Point< Real , Dim > axis;
+				Real offset = pointSetInfoAndPartition.first.modelToUnitCube( Dim , Dim-1 );
+				for( unsigned int d=0 ; d<Dim ; d++ ) axis[d] = pointSetInfoAndPartition.first.modelToUnitCube( d , Dim-1 );
+
+				std::vector< std::string > comments( 1 );
+				std::stringstream sStream;
+
+				Point< Real , Dim+1 > front , back;
+				for( unsigned int d=0 ; d<Dim ; d++ )
+				{
+					front[d] = -axis[d];
+					back[d] = axis[d];
+				}
+				front[Dim] = (range.first/res)-offset;
+				back[Dim] = offset-(range.second/res);
+				char frontStr[ 1024 ] , backStr[ 1024 ];
+				CmdLineType< Point< Real , Dim+1 > >::WriteValue( front , frontStr );
+				CmdLineType< Point< Real , Dim+1 > >::WriteValue( back , backStr );
+				sStream << "Partition: " << std::string( frontStr ) << " " << std::string( backStr );
+
+				comments[0] = sStream.str();
+				return comments;
+			}
+		};
+
+	MergePlyClientServer::RunServer< Real , Dim >( TempDir.value , TempDir.value , header , Out.value , clientSockets , sharedVertexCounts , clientMergePlyInfo , PeakMemorySampleMS.value , commentFunctor );
 
 	unsigned int peakMem = 0;
 	for( unsigned int i=0 ; i<clientSockets.size() ; i++ )
@@ -329,7 +371,7 @@ void Merge
 int main( int argc , char* argv[] )
 {
 #ifdef ARRAY_DEBUG
-	WARN( "Array debugging enabled" );
+	MK_WARN( "Array debugging enabled" );
 #endif // ARRAY_DEBUG
 #ifdef USE_DOUBLE
 	typedef double Real;
@@ -338,14 +380,14 @@ int main( int argc , char* argv[] )
 #endif // USE_DOUBLE
 	static const unsigned int Dim = DEFAULT_DIMENSION;
 
-	cmdLineParse( argc-1 , &argv[1] , params );
+	CmdLineParse( argc-1 , &argv[1] , params );
 
 	if( !In.set || !TempDir.set || !Out.set || !ClientCount.set )
 	{
 		ShowUsage( argv[0] );
 		return 0;
 	}
-	if( PadSize.value<0 ) ERROR_OUT( "Padding size cannot be negative" );
+	if( PadSize.value<0 ) MK_THROW( "Padding size cannot be negative" );
 
 	if( Verbose.value>1 )
 	{
@@ -364,15 +406,14 @@ int main( int argc , char* argv[] )
 
 	if( Depth.set && Width.value>0 )
 	{
-		WARN( "Both --" , Depth.name  , " and --" , Width.name , " set, ignoring --" , Width.name );
+		MK_WARN( "Both --" , Depth.name  , " and --" , Width.name , " set, ignoring --" , Width.name );
 		Width.value = 0;
 	}
 
 	if( MaxMemoryGB.value>0 ) SetPeakMemoryMB( MaxMemoryGB.value<<10 );
-	ThreadPool::DefaultChunkSize = ThreadChunkSize.value;
-	ThreadPool::DefaultSchedule = (ThreadPool::ScheduleType)ScheduleType.value;
-	ThreadPool::Init( (ThreadPool::ParallelType)ParallelType.value , Threads.value );
-	if( !Threads.set && Verbose.value>1 ) std::cout << "Running with " << Threads.value << " threads" << std::endl;
+	ThreadPool::ChunkSize = ThreadChunkSize.value;
+	ThreadPool::Schedule = (ThreadPool::ScheduleType)ScheduleType.value;
+	ThreadPool::ParallelizationType= (ThreadPool::ParallelType)ParallelType.value;
 	std::string header;
 
 	// Create the connections to the clients
@@ -385,7 +426,7 @@ int main( int argc , char* argv[] )
 
 		// Create a listening SOCKET for connecting to server
 		AcceptorSocket listenSocket = GetListenSocket( port );
-		if( listenSocket == _INVALID_ACCEPTOR_SOCKET_ ) ERROR_OUT( "Could not create listener socket" );
+		if( listenSocket == _INVALID_ACCEPTOR_SOCKET_ ) MK_THROW( "Could not create listener socket" );
 		std::cout << "Server Address: " << address << ":" << port << std::endl;
 		{
 			std::stringstream ss;
@@ -418,6 +459,7 @@ int main( int argc , char* argv[] )
 		clientPartitionInfo.filesPerDir = FilesPerDir.value;
 		clientPartitionInfo.bufferSize = BufferSize.value;
 		clientPartitionInfo.scale = Scale.value;
+		clientPartitionInfo.sliceDir = AlignmentDir.value;
 		clientPartitionInfo.verbose = Verbose.value>1;
 		pointSetInfoAndPartition = Partition< Real , Dim >( clientSockets , clientPartitionInfo , !NoLoadBalance.set , Performance.set );
 	}
@@ -426,8 +468,16 @@ int main( int argc , char* argv[] )
 	{
 		if( Width.value>0 )
 		{
+			XForm< Real , Dim > unitCubeToModel = pointSetInfoAndPartition.first.modelToUnitCube.inverse();
+
 			Real maxScale = 0;
-			for( unsigned int i=0 ; i<Dim ; i++ ) maxScale = std::max< Real >( maxScale , (Real)1./pointSetInfoAndPartition.first.modelToUnitCube(i,i) );
+			for( unsigned int i=0 ; i<Dim ; i++ )
+			{
+				Real l2 = 0;
+				for( unsigned int j=0 ; j<Dim ; j++ ) l2 += unitCubeToModel(i,j) * unitCubeToModel(i,j);
+				if( l2>maxScale ) maxScale = l2;
+			}
+			maxScale = sqrt( maxScale );
 			Depth.value = (unsigned int)ceil( std::max< double >( 0. , log( maxScale/Width.value )/log(2.) ) );
 		}
 		PoissonReconClientServer::ClientReconstructionInfo< Real , Dim > clientReconInfo;
@@ -438,14 +488,12 @@ int main( int argc , char* argv[] )
 		clientReconInfo.bufferSize = BufferSize.value;
 		clientReconInfo.iters = Iters.value;
 		clientReconInfo.pointWeight = PointWeight.value;
-		clientReconInfo.confidence = Confidence.value;
-		clientReconInfo.confidenceBias = ConfidenceBias.value;
 		clientReconInfo.kernelDepth = KernelDepth.value;
-		clientReconInfo.solveDepth = SolveDepth.value;
 		clientReconInfo.samplesPerNode = SamplesPerNode.value;
 		clientReconInfo.dataX = DataX.value;
 		clientReconInfo.density = Density.set;
 		clientReconInfo.linearFit = LinearFit.set;
+		clientReconInfo.confidence = Confidence.set;
 		switch( MergeSlabs.value )
 		{
 			case MergeSlabType::NONE: clientReconInfo.mergeType = PoissonReconClientServer::ClientReconstructionInfo< Real , Dim >::MergeType::NONE ; break;
@@ -453,6 +501,9 @@ int main( int argc , char* argv[] )
 			default: clientReconInfo.mergeType = PoissonReconClientServer::ClientReconstructionInfo< Real , Dim >::MergeType::TOPOLOGY_AND_FUNCTION;
 		}
 		clientReconInfo.ouputVoxelGrid = OutputVoxelGrid.set;
+		clientReconInfo.targetValue = TargetValue.value;
+		clientReconInfo.outputSolution = OutputSolution.set;
+		clientReconInfo.gridCoordinates = GridCoordinates.set;
 		clientReconInfo.verbose = Verbose.value;
 		clientReconInfo.filesPerDir = FilesPerDir.value;
 		clientReconInfo.padSize = PadSize.value;
@@ -460,15 +511,15 @@ int main( int argc , char* argv[] )
 		clientReconInfo.reconstructionDepth = Depth.value;
 		clientReconInfo.sharedDepth = 0;
 		while( ((size_t)1<<clientReconInfo.sharedDepth) < pointSetInfoAndPartition.first.pointsPerSlab.size() ) clientReconInfo.sharedDepth++;
-		if( ((size_t)1<<clientReconInfo.sharedDepth)!=pointSetInfoAndPartition.first.pointsPerSlab.size() ) ERROR_OUT( "Number of point slabs is not a power of two: " , pointSetInfoAndPartition.first.pointsPerSlab.size() );
+		if( ((size_t)1<<clientReconInfo.sharedDepth)!=pointSetInfoAndPartition.first.pointsPerSlab.size() ) MK_THROW( "Number of point slabs is not a power of two: " , pointSetInfoAndPartition.first.pointsPerSlab.size() );
 		clientReconInfo.baseDepth = BaseDepth.value;
 
-		if( clientReconInfo.pointWeight<0 ) ERROR_OUT( "Expected non-negative point-weight" );
+		if( clientReconInfo.pointWeight<0 ) MK_THROW( "Expected non-negative point-weight" );
 
-		if( clientReconInfo.sharedDepth>clientReconInfo.reconstructionDepth ) ERROR_OUT( "Slab depth cannot exceed reconstruction depth: " , clientReconInfo.sharedDepth , " <= "  , clientReconInfo.reconstructionDepth );
+		if( clientReconInfo.sharedDepth>clientReconInfo.reconstructionDepth ) MK_THROW( "Slab depth cannot exceed reconstruction depth: " , clientReconInfo.sharedDepth , " <= "  , clientReconInfo.reconstructionDepth );
 		if( clientReconInfo.baseDepth>clientReconInfo.sharedDepth )
 		{
-			if( BaseDepth.set ) ERROR_OUT( "Base depth cannot exceed shared depth: " , clientReconInfo.baseDepth , " <="  , clientReconInfo.sharedDepth );
+			if( BaseDepth.set ) MK_THROW( "Base depth cannot exceed shared depth: " , clientReconInfo.baseDepth , " <="  , clientReconInfo.sharedDepth );
 			else clientReconInfo.baseDepth = clientReconInfo.sharedDepth;
 		}
 		if( !KernelDepth.set ) KernelDepth.value = clientReconInfo.reconstructionDepth-2;
@@ -476,19 +527,19 @@ int main( int argc , char* argv[] )
 
 		if( clientReconInfo.kernelDepth>clientReconInfo.reconstructionDepth )
 		{
-			WARN( "Kernel depth should not exceed depth: " , clientReconInfo.kernelDepth , " <= " , clientReconInfo.reconstructionDepth );
+			MK_WARN( "Kernel depth should not exceed depth: " , clientReconInfo.kernelDepth , " <= " , clientReconInfo.reconstructionDepth );
 			clientReconInfo.kernelDepth = clientReconInfo.reconstructionDepth;
 		}
 
-		clientReconInfo.solveDepth = SolveDepth.set ? SolveDepth.value : clientReconInfo.reconstructionDepth;
+		clientReconInfo.solveDepth = ( SolveDepth.set && SolveDepth.value!=-1 ) ? SolveDepth.value : clientReconInfo.reconstructionDepth;
 		if( clientReconInfo.solveDepth>clientReconInfo.reconstructionDepth )
 		{
-			WARN( "Solve depth cannot exceed reconstruction depth: " , clientReconInfo.solveDepth , " <= " , clientReconInfo.reconstructionDepth );
+			MK_WARN( "Solve depth cannot exceed reconstruction depth: " , clientReconInfo.solveDepth , " <= " , clientReconInfo.reconstructionDepth );
 			clientReconInfo.solveDepth = clientReconInfo.reconstructionDepth;
 		}
 		if( clientReconInfo.solveDepth<clientReconInfo.baseDepth )
 		{
-			WARN( "Solve depth cannot be smaller than base depth: " , clientReconInfo.solveDepth , " >= " , clientReconInfo.baseDepth );
+			MK_WARN( "Solve depth cannot be smaller than base depth: " , clientReconInfo.solveDepth , " >= " , clientReconInfo.baseDepth );
 			clientReconInfo.solveDepth = clientReconInfo.baseDepth;
 		}
 #ifdef FAST_COMPILE
@@ -498,11 +549,12 @@ int main( int argc , char* argv[] )
 #endif // FAST_COMPILE
 	}
 
-	if( Verbose.value>1 && ( MergeSlabs.value==MergeSlabType::SEAMLESS || MergeSlabs.value==MergeSlabType::TOPOLOGY_AND_FUNCTION ) ) 
+	if constexpr( Dim==3 )  if( Verbose.value>1 && ( MergeSlabs.value==MergeSlabType::SEAMLESS || MergeSlabs.value==MergeSlabType::TOPOLOGY_AND_FUNCTION ) ) 
 		for( unsigned int i=0 ; i<sharedVertexCounts.size() ; i++ ) std::cout << "Vertices[" << (i+1) << "] " << sharedVertexCounts[i] << std::endl;
 
 	PointPartition::RemovePointSlabDirs( PointPartition::FileDir( TempDir.value , header ) );
 
+	if constexpr( Dim==3 )
 	{
 		if( MergeSlabs.value!=MergeSlabType::SEAMLESS ) for( unsigned int i=0 ; i<sharedVertexCounts.size() ; i++ ) sharedVertexCounts[i] = 0;
 		MergePlyClientServer::ClientMergePlyInfo clientMergePlyInfo;
@@ -514,8 +566,10 @@ int main( int argc , char* argv[] )
 		}
 		else clientMergePlyInfo.auxProperties = pointSetInfoAndPartition.first.auxiliaryProperties;
 		clientMergePlyInfo.bufferSize = BufferSize.value;
+		clientMergePlyInfo.keepSeparate = KeepSeparate.set;
 		clientMergePlyInfo.verbose = Verbose.value!=0;
-		Merge< Real , Dim >( sharedVertexCounts , header , clientSockets , clientMergePlyInfo );
+
+		Merge< Real , Dim >( sharedVertexCounts , header , clientSockets , clientMergePlyInfo , pointSetInfoAndPartition );
 
 		auto InFile = [&]( unsigned int idx )
 		{
@@ -533,7 +587,33 @@ int main( int argc , char* argv[] )
 
 	for( unsigned int i=0 ; i<clientSockets.size() ; i++ ) CloseSocket( clientSockets[i] );
 
-	ThreadPool::Terminate();
+	if( KeepSeparate.set && Verbose.value>=1 )
+	{
+		Real res = (Real)( 1<<PartitionDepth.value );
+		Point< Real , Dim > axis;
+		Real offset = pointSetInfoAndPartition.first.modelToUnitCube( Dim , Dim-1 );
+		for( unsigned int d=0 ; d<Dim ; d++ ) axis[d] = pointSetInfoAndPartition.first.modelToUnitCube( d , Dim-1 );
+
+		Point< Real , Dim+1 > front , back;
+		for( unsigned int d=0 ; d<Dim ; d++ )
+		{
+			front[d] = -axis[d];
+			back[d] = axis[d];
+		}
+		std::cout << "Partition Axis: " << axis << std::endl;
+		std::cout << "Partitions:" << std::endl;
+		for( unsigned int i=0 ; i<pointSetInfoAndPartition.second.partitions() ; i++ )
+		{
+			std::pair< unsigned int , unsigned int > range = pointSetInfoAndPartition.second.range( i );
+			front[Dim] = (range.first/res)-offset;
+			back[Dim] = offset-(range.second/res);
+			char frontStr[ 1024 ] , backStr[ 1024 ];
+			CmdLineType< Point< Real , Dim+1 > >::WriteValue( front , frontStr );
+			CmdLineType< Point< Real , Dim+1 > >::WriteValue( back , backStr );
+			std::cout << "\t[ " << offset-(range.first/res) << " , " << offset-(range.second/res) << " ] ->";
+			std::cout << std::string( frontStr ) << " " << std::string( backStr ) << std::endl;
+		}
+	}
 
 	return EXIT_SUCCESS;
 }

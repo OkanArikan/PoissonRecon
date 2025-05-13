@@ -26,15 +26,20 @@ ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF S
 DAMAGE.
 */
 
-#include <functional>
-#include <cmath>
-#include <climits>
-#include "MyMiscellany.h"
-
 /////////////////////
 // FEMTreeNodeData //
 /////////////////////
+#ifdef SANITIZED_PR
+FEMTreeNodeData::FEMTreeNodeData( void ) : flags(0){}
+FEMTreeNodeData &FEMTreeNodeData::operator = ( const FEMTreeNodeData &data )
+{
+	nodeIndex = data.nodeIndex;
+	flags = data.flags.load();
+	return *this;
+}
+#else // !SANITIZED_PR
 FEMTreeNodeData::FEMTreeNodeData( void ){ flags = 0; }
+#endif // SANITIZED_PR
 FEMTreeNodeData::~FEMTreeNodeData( void ) { }
 
 
@@ -54,7 +59,7 @@ void FEMTree< Dim , Real >::_init( void )
 	_spaceRoot = &_tree;
 	for( int d=0 ; d<_depthOffset ; d++ )
 	{
-		if( !_spaceRoot->children ) ERROR_OUT( "Expected child node: " , d , " / " , _depthOffset );
+		if( !_spaceRoot->children ) MK_THROW( "Expected child node: " , d , " / " , _depthOffset );
 		else if( d==0 ) _spaceRoot = _spaceRoot->children + (1<<Dim)-1;
 		else            _spaceRoot = _spaceRoot->children;
 	}
@@ -63,8 +68,8 @@ void FEMTree< Dim , Real >::_init( void )
 template< unsigned int Dim , class Real >
 FEMTree< Dim , Real > *FEMTree< Dim , Real >::Merge( const FEMTree< Dim , Real > &tree1 , const FEMTree< Dim , Real > &tree2 , size_t blockSize )
 {
-	if( tree1._baseDepth != tree2._baseDepth ) ERROR_OUT( "Base depths differ: " , tree1._baseDepth , " != " , tree2._baseDepth );
-	if( tree1._depthOffset != tree2._depthOffset ) ERROR_OUT( "Depth offsets differ: " , tree1._depthOffset , " != " , tree2._depthOffset );
+	if( tree1._baseDepth != tree2._baseDepth ) MK_THROW( "Base depths differ: " , tree1._baseDepth , " != " , tree2._baseDepth );
+	if( tree1._depthOffset != tree2._depthOffset ) MK_THROW( "Depth offsets differ: " , tree1._depthOffset , " != " , tree2._depthOffset );
 	FEMTree< Dim , Real > *mergeTree = new FEMTree( blockSize );
 
 	// have support overlapping the slice.
@@ -103,7 +108,7 @@ template< unsigned int Dim , class Real >
 template< unsigned int CrossDegree , unsigned int Pad >
 FEMTree< Dim , Real > *FEMTree< Dim , Real >::Slice( const FEMTree< Dim+1 , Real > &tree , unsigned int sliceDepth , unsigned int sliceIndex , bool includeBounds , size_t blockSize )
 {
-	if( sliceIndex>(unsigned int)(1<<sliceDepth) ) ERROR_OUT( "Slice index out of bounds: 0 <= " , sliceIndex , " <= " , (1<<sliceDepth) );
+	if( sliceIndex>(unsigned int)(1<<sliceDepth) ) MK_THROW( "Slice index out of bounds: 0 <= " , sliceIndex , " <= " , (1<<sliceDepth) );
 	FEMTree< Dim , Real > *sliceTree = new FEMTree( blockSize );
 
 	unsigned int maxDepth = tree.maxDepth();
@@ -179,7 +184,7 @@ void FEMTree< Dim , Real >::merge( const FEMTree< Dim , Real > &tree , const Den
 	{
 		if( node && node->nodeData.nodeIndex!=-1 )
 		{
-			if( !mergeNode || mergeNode->nodeData.nodeIndex==-1 ) ERROR_OUT( "Merge node not set" );
+			if( !mergeNode || mergeNode->nodeData.nodeIndex==-1 ) MK_THROW( "Merge node not set" );
 			LocalDepth d ; LocalOffset off;
 			tree.depthAndOffset( node , d , off );
 			mergeCoefficients[ mergeNode->nodeData.nodeIndex ] += coefficients[ node->nodeData.nodeIndex ];
@@ -188,6 +193,77 @@ void FEMTree< Dim , Real >::merge( const FEMTree< Dim , Real > &tree , const Den
 	};
 	accumulateCoefficients( &tree._tree , &_tree );
 }
+
+template< unsigned int Dim , class Real , unsigned int Pad , unsigned int FEMSig >
+struct SliceEvaluator
+{
+	struct _SliceEvaluator
+	{
+		const int StartOffset = BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportStart-(int)Pad;
+		const int   EndOffset = BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportEnd+1+(int)Pad;
+		int start;
+		Real values[ BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportSize+2*Pad ];
+		void init( unsigned int depth , double x , unsigned int d )
+		{
+			// off @ depthsupports the slice if 
+			//		x>(off+StartOffset)/(1<<depth) && x<(off+EndOffset)/(1<<depth)
+			// <=>	x*(1<<depth)-StartOffset>off && x*(1<<depth)-EndOfset<off
+			// <=>	off \in ( x*(1<<depth)-EndOffset , x*(1<<depth)-StartOffset )
+			// <=	off \in [ ceil( x*(1<<depth) )-EndOffset , ceil( x*(1<<depth) ) - StartOffset )
+			start = (int)ceil( x*(1<<depth)-EndOffset );
+
+			// The derivative is lower than the degree, the derivative will be continuous so we can evaluate it directly
+			if( d<FEMSignature< FEMSig >::Degree ) for( int i=0 ; i<EndOffset-StartOffset ; i++ ) values[i] = (Real)BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d );
+			else if( d==FEMSignature< FEMSig >::Degree )
+			{
+				double eps = 1e-4/(1<<depth);
+#ifdef SHOW_WARNINGS
+				MK_WARN_ONCE( "Using discrete derivative: " , eps );
+#endif // SHOW_WARNINGS
+				// If we are dealing with a degree-zero polynomial, we offset
+				if( d==0 )
+				{
+					for( int i=0 ; i<EndOffset-StartOffset ; i++ )
+					{
+						double value = 0;
+						value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x-eps , d );
+						value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x+eps , d );
+						values[i] = (Real)(value/2);
+					}
+				}
+				else // Otherwise we compute the discrete derivative
+				{
+					for( int i=0 ; i<EndOffset-StartOffset ; i++ )
+					{
+						double value = 0;
+						value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d-1 ) - BSplineEvaluationData< FEMSig >::Value( depth , start+i , x-eps , d-1 );
+						value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x+eps , d-1 ) - BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d-1 );
+						values[i] = (Real)(value/(2*eps) );
+					}
+				}
+
+			}
+			else MK_THROW( "Derivative exceeds degree: " , d , " > " , FEMSignature< FEMSig >::Degree );
+		}
+		Real operator()( int off ) const
+		{
+			if( off<start || off>=start+(EndOffset-StartOffset ) ) return 0;
+			else return values[off-start];
+		}
+	};
+
+	std::vector< _SliceEvaluator > evaluators;
+	void init( unsigned int maxDepth , double x , unsigned int d )
+	{
+		evaluators.resize( maxDepth+1 );
+		for( unsigned int depth=0 ; depth<=maxDepth ; depth++ ) evaluators[depth].init( depth , x , d );
+	}
+	Real operator()( int d , int off ) const
+	{
+		if( d<0 || d>=(int)evaluators.size() ) return 0;
+		else return evaluators[d]( off );
+	}
+};
 
 template< unsigned int Dim , class Real >
 template< unsigned int Pad , unsigned int FEMSig , unsigned int ... FEMSigs , typename Data >
@@ -220,95 +296,7 @@ void FEMTree< Dim , Real >::slice( const FEMTree< Dim+1 , Real > &tree , unsigne
 	const int   EndOffset = BSplineSupportSizes< CrossDegree >::SupportEnd+1+(int)Pad;
 #endif // __GNUC__
 
-	struct SliceEvaluator
-	{
-		struct _SliceEvaluator
-		{
-#ifdef __GNUC__
-			const int StartOffset = BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportStart-(int)Pad;
-			const int   EndOffset = BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportEnd+1+(int)Pad;
-#else // !__GNUC__
-			const int StartOffset = BSplineSupportSizes< CrossDegree >::SupportStart-(int)_Pad;
-			const int   EndOffset = BSplineSupportSizes< CrossDegree >::SupportEnd+1+(int)_Pad;
-#endif // __GNUC__
-			int start;
-#ifdef __GNUC__
-			Real values[ BSplineSupportSizes< FEMSignature< FEMSig >::Degree >::SupportSize+2*Pad ];
-#else // !__GNUC__
-			Real values[ BSplineSupportSizes< CrossDegree >::SupportSize+2*Pad ];
-#endif // __GNUC__
-			void init( unsigned int depth , double x , unsigned int d )
-			{
-				// off @ depthsupports the slice if 
-				//		x>(off+StartOffset)/(1<<depth) && x<(off+EndOffset)/(1<<depth)
-				// <=>	x*(1<<depth)-StartOffset>off && x*(1<<depth)-EndOfset<off
-				// <=>	off \in ( x*(1<<depth)-EndOffset , x*(1<<depth)-StartOffset )
-				// <=	off \in [ ceil( x*(1<<depth) )-EndOffset , ceil( x*(1<<depth) ) - StartOffset )
-				start = (int)ceil( x*(1<<depth)-EndOffset );
-
-				// The derivative is lower than the degree, the derivative will be continuous so we can evaluate it directly
-#ifdef __GNUC__
-				if( d<FEMSignature< FEMSig >::Degree ) for( int i=0 ; i<EndOffset-StartOffset ; i++ ) values[i] = (Real)BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d );
-				else if( d==FEMSignature< FEMSig >::Degree )
-#else // !__GNUC__
-				if( d<CrossDegree ) for( int i=0 ; i<EndOffset-StartOffset ; i++ ) values[i] = (Real)BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d );
-				else if( d==CrossDegree )
-#endif // __GNUC__
-				{
-					double eps = 1e-4/(1<<depth);
-#ifdef SHOW_WARNINGS
-					WARN_ONCE( "Using discrete derivative: " , eps );
-#endif // SHOW_WARNINGS
-					// If we are dealing with a degree-zero polynomial, we offset
-					if( d==0 )
-					{
-						for( int i=0 ; i<EndOffset-StartOffset ; i++ )
-						{
-							double value = 0;
-							value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x-eps , d );
-							value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x+eps , d );
-							values[i] = (Real)(value/2);
-						}
-					}
-					else // Otherwise we compute the discrete derivative
-					{
-						for( int i=0 ; i<EndOffset-StartOffset ; i++ )
-						{
-							double value = 0;
-							value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d-1 ) - BSplineEvaluationData< FEMSig >::Value( depth , start+i , x-eps , d-1 );
-							value += BSplineEvaluationData< FEMSig >::Value( depth , start+i , x+eps , d-1 ) - BSplineEvaluationData< FEMSig >::Value( depth , start+i , x , d-1 );
-							values[i] = (Real)(value/(2*eps) );
-						}
-					}
-
-				}
-#ifdef __GNUC__
-				else ERROR_OUT( "Derivative exceeds degree: " , d , " > " , FEMSignature< FEMSig >::Degree );
-#else // !__GNUC__
-				else ERROR_OUT( "Derivative exceeds degree: " , d , " > " , CrossDegree );
-#endif // __GNUC__
-			}
-			Real operator()( int off ) const
-			{
-				if( off<start || off>=start+(EndOffset-StartOffset ) ) return 0;
-				else return values[off-start];
-			}
-		};
-
-		std::vector< _SliceEvaluator > evaluators;
-		void init( unsigned int maxDepth , double x , unsigned int d )
-		{
-			evaluators.resize( maxDepth+1 );
-			for( unsigned int depth=0 ; depth<=maxDepth ; depth++ ) evaluators[depth].init( depth , x , d );
-		}
-		Real operator()( int d , int off ) const
-		{
-			if( d<0 || d>=(int)evaluators.size() ) return 0;
-			else return evaluators[d]( off );
-		}
-	};
-
-	SliceEvaluator sliceEvaluator;
+	SliceEvaluator< Dim , Real , Pad , FEMSig > sliceEvaluator;
 	sliceEvaluator.init( maxDepth , s , d );
 
 	// A function return true if the function indexed by the node has support overlapping the slice
@@ -330,7 +318,7 @@ void FEMTree< Dim , Real >::slice( const FEMTree< Dim+1 , Real > &tree , unsigne
 	{
 		if( node->nodeData.nodeIndex!=-1 )
 		{
-			if( sliceNode->nodeData.nodeIndex==-1 ) ERROR_OUT( "Slice node not set" );
+			if( sliceNode->nodeData.nodeIndex==-1 ) MK_THROW( "Slice node not set" );
 			typename FEMTree< Dim+1 , Real >::LocalDepth d ; typename FEMTree< Dim+1 , Real >::LocalOffset off;
 			tree.depthAndOffset( node , d , off );
 			sliceCoefficients[ sliceNode->nodeData.nodeIndex ] += coefficients[ node->nodeData.nodeIndex ] * sliceEvaluator( d , off[Dim] );
@@ -366,24 +354,22 @@ FEMTree< Dim , Real >::FEMTree( size_t blockSize ) : _nodeInitializer( *this ) ,
 }
 
 template< unsigned int Dim , class Real >
-FEMTree< Dim , Real >::FEMTree( BinaryStream &stream , XForm< Real , Dim+1 > &xForm , size_t blockSize ) : FEMTree( blockSize )
+FEMTree< Dim , Real >::FEMTree( BinaryStream &stream , size_t blockSize ) : FEMTree( blockSize )
 {
 	Allocator< FEMTreeNode > *nodeAllocator = nodeAllocators.size() ? nodeAllocators[0] : NULL;
-	if( !stream.read( xForm.coords ) ) ERROR_OUT( "Failed to read transform" );
 	node_index_type nodeCount;
-	if( !stream.read( nodeCount ) ) ERROR_OUT( "Failed to read nodeCount" );
+	if( !stream.read( nodeCount ) ) MK_THROW( "Failed to read nodeCount" );
 	_nodeCount = nodeCount;
-	if( !stream.read( _maxDepth ) ) ERROR_OUT( "Failed to read _maxDepth" );
-	if( !stream.read( _depthOffset ) ) ERROR_OUT( "Failed to read _depthOffset" );
-	if( !stream.read( _baseDepth ) ) ERROR_OUT( "Failed to read _baseDepth" );
+	if( !stream.read( _maxDepth ) ) MK_THROW( "Failed to read _maxDepth" );
+	if( !stream.read( _depthOffset ) ) MK_THROW( "Failed to read _depthOffset" );
+	if( !stream.read( _baseDepth ) ) MK_THROW( "Failed to read _baseDepth" );
 	_tree.read( stream , nodeAllocator );
 	_init();
 	_sNodes.read( stream , _tree );
 }
 
-template< unsigned int Dim , class Real > void FEMTree< Dim , Real >::write( BinaryStream &stream , XForm< Real , Dim+1 > xForm , bool serialize ) const
+template< unsigned int Dim , class Real > void FEMTree< Dim , Real >::write( BinaryStream &stream , bool serialize ) const
 {
-	stream.write( xForm );
 	node_index_type nodeCount = _nodeCount;
 	stream.write( nodeCount );
 	stream.write( _maxDepth );
@@ -497,8 +483,8 @@ void FEMTree< Dim , Real >::_refine( UIntPack< Degrees ... > , Allocator< FEMTre
 	for( int c=0 ; c<(1<<Dim) ; c++ )
 	{
 		for( int d=0 ; d<Dim ; d++ )
-			if( c&(1<<d) ) _off[d] = (off[d]<<1) | 1;
-			else           _off[d] = (off[d]<<1);
+			if( c&(1<<d) ) _off[d] = off[d]*2+1;
+			else           _off[d] = off[d]*2+0;
 		refine |= !FEMIntegrator::IsOutOfBounds( UIntPack< FEMDegreeAndBType< Degrees , BOUNDARY_FREE >::Signature ... >() , _d , _off ) && addNodeFunctor( _d , _off );
 	}
 	if( refine )
@@ -576,11 +562,12 @@ typename FEMTree< Dim , Real >::LocalDepth FEMTree< Dim , Real >::_getFullDepth(
 
 	auto IsSupported = [&]( LocalDepth d , LocalOffset off )
 	{
+		if( d>depth ) return false;
 		LocalOffset supportStart , supportEnd;
 		for( unsigned int dim=0 ; dim<Dim ; dim++ )
 		{
-			supportStart[dim] = ( off[dim] + StartOffsets[dim] )<<(depth-d);
-			supportEnd  [dim] = ( off[dim] +   EndOffsets[dim] )<<(depth-d);
+			supportStart[dim] = ( off[dim] + StartOffsets[dim] )*(1<<(depth-d));
+			supportEnd  [dim] = ( off[dim] +   EndOffsets[dim] )*(1<<(depth-d));
 		}
 		if( d>=0 ) for( unsigned int dim=0 ; dim<Dim ; dim++ ) if( supportStart[dim]>=end[dim] || supportEnd[dim]<=begin[dim] ) return false;
 		return true;
@@ -595,8 +582,13 @@ typename FEMTree< Dim , Real >::LocalDepth FEMTree< Dim , Real >::_getFullDepth(
 			for( unsigned int c=0 ; c<(1<<Dim) ; c++ )
 			{
 				for( int dim=0 ; dim<Dim ; dim++ )
+#ifdef SANITIZED_PR
+					if( c&(1<<dim) ) _off[dim] = off[dim]*2 + 1;
+					else             _off[dim] = off[dim]*2 + 0;
+#else // !SANITIZED_PR
 					if( c&(1<<dim) ) _off[dim] = (off[dim]<<1) | 1;
 					else             _off[dim] = (off[dim]<<1);
+#endif // SANITIZED_PR
 				childrenSupported |= IsSupported( _d , _off );
 			}
 			if( childrenSupported ) return d;
@@ -633,13 +625,14 @@ template< unsigned int Dim , class Real >
 template< unsigned int ... Degrees >
 typename FEMTree< Dim , Real >::LocalDepth FEMTree< Dim , Real >::getFullDepth( UIntPack< Degrees ... > , const LocalDepth depth , const LocalOffset begin , const LocalOffset end ) const
 {
-	LocalDepth maxDepth = this->maxDepth();
+	// [NOTE] Need "+1" because _getFullDepth will test children of leaves
+	LocalDepth maxDepth = this->maxDepth() + 1;
 	LocalDepth _depth ; LocalOffset _begin , _end;
 	for( unsigned int d=0 ; d<Dim ; d++ )
 	{
-		if( begin[d]>end[d] ) ERROR_OUT( "Bad bounds [" , d , "]: " , begin[d] , " <= " , end[d] );
-		if( begin[d]<0 ) ERROR_OUT( "Start bound cannot be negative [" , d , "]: 0 <= " , begin[d]  );
-		if( end[d]>(1<<depth) ) ERROR_OUT( "End bound cannot exceed resolution [" , d , "]: " , end[d] , " <=" , (1<<depth) );
+		if( begin[d]>end[d] ) MK_THROW( "Bad bounds [" , d , "]: " , begin[d] , " <= " , end[d] );
+		if( begin[d]<0 ) MK_THROW( "Start bound cannot be negative [" , d , "]: 0 <= " , begin[d]  );
+		if( end[d]>(1<<depth) ) MK_THROW( "End bound cannot exceed resolution [" , d , "]: " , end[d] , " <=" , (1<<depth) );
 
 		// Push to max depth
 		if( depth<maxDepth )
@@ -695,7 +688,7 @@ void FEMTree< Dim , Real >::processNeighbors( FEMTreeNode **nodes , size_t nodeC
 	for( size_t i=0 ; i<nodeCount ; i++ )
 	{
 		auto neighbors = neighborKey.template getNeighbors< CreateNodes , false >( nodes[i] , nodeAllocator , _nodeInitializer );
-		for( unsigned int j=0 ; j<neighbors.neighbors.Size ; j++ ) if( neighbors.neighbors.data[j] ) initialize( neighbors.neighbors.data[j] );
+		for( unsigned int j=0 ; j<neighbors.neighbors.Size() ; j++ ) if( neighbors.neighbors.data[j] ) initialize( neighbors.neighbors.data[j] );
 	}
 
 	_reorderDenseOrSparseNodeData< 0 >( GetPointer( map ) , _nodeCount , data );
@@ -740,12 +733,12 @@ void FEMTree< Dim , Real >::processNeighboringLeaves( FEMTreeNode **nodes , size
 	std::vector< NeighborKey > neighborKeys( ThreadPool::NumThreads() );
 	for( int i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( maxDepth );
 
-	ThreadPool::Parallel_for( 0 , nodeCount , [&]( unsigned int t , size_t  i )
+	ThreadPool::ParallelFor( 0 , nodeCount , [&]( unsigned int t , size_t  i )
 		{
 			typedef StaticWindow< FEMTreeNode * , IsotropicUIntPack< Dim , LeftRadius+RightRadius+1 > > NeighborLeafNodes;
 			NeighborLeafNodes neighborLeafNodes;
 			neighborKeys[t].setLeafNeighbors( nodes[i] , neighborLeafNodes );
-			for( int i=0 ; i<NeighborLeafNodes::Size ; i++ ) if( neighborLeafNodes.data[i] )
+			for( unsigned int i=0 ; i<NeighborLeafNodes::Size() ; i++ ) if( neighborLeafNodes.data[i] )
 				if( processSubTree ) ProcessSubTree( neighborLeafNodes.data[i] );
 				else kernel( neighborLeafNodes.data[i] );
 		} );
@@ -795,7 +788,7 @@ typename FEMTree< Dim , Real >::template ApproximatePointAndDataInterpolationInf
 
 template< unsigned int Dim , class Real >
 template< unsigned int CoDim , unsigned int DensityDegree >
-void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree > &density , const std::vector< PointSample >& samples , LocalDepth minSplatDepth , LocalDepth maxSplatDepth , Real samplesPerNode )
+void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree > &density , const std::vector< PointSample >& samples , LocalDepth minSplatDepth , LocalDepth maxSplatDepth )
 {
 	//	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( _spaceRoot );
 	SubTreeExtractor subtreeExtractor( _spaceRoot , _depthOffset );
@@ -803,14 +796,14 @@ void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real
 	LocalDepth maxDepth = _spaceRoot->maxDepth();
 	maxSplatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( maxSplatDepth , maxDepth ) );
 	minSplatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( minSplatDepth , maxDepth ) );
-	if( minSplatDepth>maxSplatDepth ) ERROR_OUT( "Minimum splat depth exceeds maximum splat depth" );
+	if( minSplatDepth>maxSplatDepth ) MK_THROW( "Minimum splat depth exceeds maximum splat depth" );
 	PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > densityKey;
 	densityKey.set( maxSplatDepth );
 
 	std::vector< node_index_type > sampleMap( nodeCount() , -1 );
 
 	// Initialize the map from node indices to samples
-	ThreadPool::Parallel_for( 0 , samples.size() , [&]( unsigned int , size_t i ){ if( samples[i].sample.weight>0 ) sampleMap[ samples[i].node->nodeData.nodeIndex ] = (node_index_type)i; } );
+	ThreadPool::ParallelFor( 0 , samples.size() , [&]( unsigned int , size_t i ){ if( samples[i].sample.weight>0 ) sampleMap[ samples[i].node->nodeData.nodeIndex ] = (node_index_type)i; } );
 
 	std::function< ProjectiveData< Point< Real , Dim > , Real > ( FEMTreeNode* ) > SetDensity = [&] ( FEMTreeNode* node )
 	{
@@ -827,7 +820,7 @@ void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real
 
 template< unsigned int Dim , class Real >
 template< unsigned int CoDim , unsigned int DensityDegree >
-void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree > &density , const std::vector< PointSample >& samples , LocalDepth minSplatDepth , LocalDepth maxSplatDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Real samplesPerNode )
+void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree > &density , const std::vector< PointSample >& samples , LocalDepth minSplatDepth , LocalDepth maxSplatDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor )
 {
 	//	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( _spaceRoot );
 	SubTreeExtractor subtreeExtractor( _spaceRoot , _depthOffset );
@@ -835,14 +828,14 @@ void FEMTree< Dim , Real >::updateDensityEstimator( typename FEMTree< Dim , Real
 	LocalDepth maxDepth = _spaceRoot->maxDepth();
 	maxSplatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( maxSplatDepth , maxDepth ) );
 	minSplatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( minSplatDepth , maxDepth ) );
-	if( minSplatDepth>maxSplatDepth ) ERROR_OUT( "Minimum splat depth exceeds maximum splat depth" );
+	if( minSplatDepth>maxSplatDepth ) MK_THROW( "Minimum splat depth exceeds maximum splat depth" );
 	PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > densityKey;
 	densityKey.set( maxSplatDepth );
 
 	std::vector< node_index_type > sampleMap( nodeCount() , -1 );
 
 	// Initialize the map from node indices to samples
-	ThreadPool::Parallel_for( 0 , samples.size() , [&]( unsigned int , size_t i ){ if( samples[i].sample.weight>0 ) sampleMap[ samples[i].node->nodeData.nodeIndex ] = (node_index_type)i; } );
+	ThreadPool::ParallelFor( 0 , samples.size() , [&]( unsigned int , size_t i ){ if( samples[i].sample.weight>0 ) sampleMap[ samples[i].node->nodeData.nodeIndex ] = (node_index_type)i; } );
 
 	std::function< ProjectiveData< Point< Real , Dim > , Real > ( FEMTreeNode* ) > SetDensity = [&] ( FEMTreeNode* node )
 	{
@@ -870,7 +863,7 @@ typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree >* FEMT
 	LocalDepth maxDepth = _spaceRoot->maxDepth();
 	splatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( splatDepth , maxDepth ) );
 	DensityEstimator< DensityDegree > *density = new DensityEstimator< DensityDegree >( splatDepth , CoDim , samplesPerNode );
-	this->template updateDensityEstimator< CoDim , DensityDegree >( *density , samples , 0 , splatDepth , samplesPerNode );
+	this->template updateDensityEstimator< CoDim , DensityDegree >( *density , samples , 0 , splatDepth );
 
 	return density;
 }
@@ -882,14 +875,14 @@ typename FEMTree< Dim , Real >::template DensityEstimator< DensityDegree >* FEMT
 	LocalDepth maxDepth = _spaceRoot->maxDepth();
 	splatDepth = std::max< LocalDepth >( 0 , std::min< LocalDepth >( splatDepth , maxDepth ) );
 	DensityEstimator< DensityDegree > *density = new DensityEstimator< DensityDegree >( splatDepth , CoDim , samplesPerNode );
-	this->template updateDensityEstimator< CoDim , DensityDegree >( *density , samples , 0 , splatDepth , pointDepthFunctor , samplesPerNode );
+	this->template updateDensityEstimator< CoDim , DensityDegree >( *density , samples , 0 , splatDepth , pointDepthFunctor );
 
 	return density;
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int ... DataSigs , unsigned int DensityDegree , class InData , class OutData >
-SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData& ) > ConversionFunction , std::function< Real ( InData ) > BiasFunction )
+SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( OutData zero , UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData& ) > ConversionFunction , std::function< Real ( InData ) > BiasFunction )
 {
 	std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction = [&]( InData in , OutData &out , Real &bias )
 	{
@@ -900,12 +893,12 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 		}
 		else return false;
 	};
-	return setInterpolatedDataField( UIntPack< DataSigs ... >() , samples , data , density , minDepth , maxDepth , minDepthCutoff , pointDepthAndWeight , ConversionAndBiasFunction );
+	return setInterpolatedDataField( zero , UIntPack< DataSigs ... >() , samples , data , density , minDepth , maxDepth , minDepthCutoff , pointDepthAndWeight , ConversionAndBiasFunction );
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int ... DataSigs , unsigned int DensityDegree , class InData , class OutData >
-SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction )
+SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( OutData zero , UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction )
 {
 	//	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( _spaceRoot );
 	SubTreeExtractor subtreeExtractor( _spaceRoot , _depthOffset );
@@ -923,7 +916,7 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 	pointDepthAndWeight.weight = 0;
 	SparseNodeData< OutData , UIntPack< DataSigs ... > > dataField;
 	std::vector< Point< Real , 2 > > pointDepthAndWeightSums( ThreadPool::NumThreads() , Point< Real , 2 >() );
-	ThreadPool::Parallel_for( 0 , samples.size() , [&]( unsigned int thread , size_t i )
+	ThreadPool::ParallelFor( 0 , samples.size() , [&]( unsigned int thread , size_t i )
 		{
 			DensityKey& densityKey = densityKeys[ thread ];
 			DataKey& dataKey = dataKeys[ thread ];
@@ -935,7 +928,7 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 				OutData out;
 
 				Real depthBias;
-				if( !_InBounds(p) ) WARN( "Point sample is out of bounds" );
+				if( !_InBounds(p) ) MK_WARN( "Point sample is out of bounds" );
 				else if( ConversionAndBiasFunction( in , out , depthBias ) )
 				{
 					depthAndWeightSums[thread] += sample.weight;
@@ -948,9 +941,9 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 #ifdef SHOW_WARNINGS
 #warning "you've got me gcc version<5"
 #endif // SHOW_WARNINGS
-					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData >( nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , maxDepth , Dim , depthBias ) * sample.weight;
+					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData >( zero , nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , maxDepth , Dim , depthBias ) * sample.weight;
 #else // !__GNUC__ || __GNUC__ >=5
-					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData , DataSigs ... >( nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , maxDepth , Dim , depthBias ) * sample.weight;
+					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData , DataSigs ... >( zero , nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , maxDepth , Dim , depthBias ) * sample.weight;
 #endif // __GNUC__ && __GNUC__ < 5
 					else
 					{
@@ -959,9 +952,9 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 #ifdef SHOW_WARNINGS
 						#warning "you've got me gcc version<5"
 #endif // SHOW_WARNINGS
-							_splatPointData< true , true , OutData >( nodeAllocator , _leaf< true >( nodeAllocator , p , maxDepth ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
+						_splatPointData< true , true , OutData >( zero , nodeAllocator , _leaf< true >( nodeAllocator , p , maxDepth ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
 #else // !__GNUC__ || __GNUC__ >=5
-						_splatPointData< true , true , OutData , DataSigs ... >( nodeAllocator , _leaf< true >( nodeAllocator , p , maxDepth ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
+						_splatPointData< true , true , OutData , DataSigs ... >( zero , nodeAllocator , _leaf< true >( nodeAllocator , p , maxDepth ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
 #endif // __GNUC__ && __GNUC__ < 5
 						pointDepthAndWeightSums[thread] += Point< Real , 2 >( (Real)1. , (Real)maxDepth ) * sample.weight;
 					}
@@ -978,7 +971,7 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 
 template< unsigned int Dim , class Real >
 template< unsigned int ... DataSigs , unsigned int DensityDegree , class InData , class OutData >
-SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData& ) > ConversionFunction , std::function< Real ( InData ) > BiasFunction )
+SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( OutData zero , UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData& ) > ConversionFunction , std::function< Real ( InData ) > BiasFunction )
 {
 	std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction = [&]( InData in , OutData &out , Real &bias )
 	{
@@ -989,12 +982,12 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 		}
 		else return false;
 	};
-	return setInterpolatedDataField( UIntPack< DataSigs ... >() , samples , data , density , minDepth , maxDepth , pointDepthFunctor , minDepthCutoff , pointDepthAndWeight , ConversionAndBiasFunction );
+	return setInterpolatedDataField( zero , UIntPack< DataSigs ... >() , samples , data , density , minDepth , maxDepth , pointDepthFunctor , minDepthCutoff , pointDepthAndWeight , ConversionAndBiasFunction );
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int ... DataSigs , unsigned int DensityDegree , class InData , class OutData >
-SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction )
+SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setInterpolatedDataField( OutData zero , UIntPack< DataSigs ... > , const std::vector< PointSample >& samples , const std::vector< InData >& data , const DensityEstimator< DensityDegree >* density , LocalDepth minDepth , LocalDepth maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Real minDepthCutoff , ProjectiveData< Point< Real , 2 > , Real > &pointDepthAndWeight , std::function< bool ( InData , OutData & , Real & ) > ConversionAndBiasFunction )
 {
 	//	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( _spaceRoot );
 	SubTreeExtractor subtreeExtractor( _spaceRoot , _depthOffset );
@@ -1012,7 +1005,7 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 	pointDepthAndWeight.weight = 0;
 	SparseNodeData< OutData , UIntPack< DataSigs ... > > dataField;
 	std::vector< Point< Real , 2 > > pointDepthAndWeightSums( ThreadPool::NumThreads() , Point< Real , 2 >() );
-	ThreadPool::Parallel_for( 0 , samples.size() , [&]( unsigned int thread , size_t i )
+	ThreadPool::ParallelFor( 0 , samples.size() , [&]( unsigned int thread , size_t i )
 		{
 			DensityKey& densityKey = densityKeys[ thread ];
 			DataKey& dataKey = dataKeys[ thread ];
@@ -1024,7 +1017,7 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 				OutData out;
 
 				Real depthBias;
-				if( !_InBounds(p) ) WARN( "Point sample is out of bounds" );
+				if( !_InBounds(p) ) MK_WARN( "Point sample is out of bounds" );
 				else if( ConversionAndBiasFunction( in , out , depthBias ) )
 				{
 					depthAndWeightSums[thread] += sample.weight;
@@ -1037,9 +1030,9 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 #ifdef SHOW_WARNINGS
 #warning "you've got me gcc version<5"
 #endif // SHOW_WARNINGS
-					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData >( nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , pointDepthFunctor , Dim , depthBias ) * sample.weight;
+					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData >( zero , nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , pointDepthFunctor , Dim , depthBias ) * sample.weight;
 #else // !__GNUC__ || __GNUC__ >=5
-					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData , DataSigs ... >( nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , pointDepthFunctor , Dim , depthBias ) * sample.weight;
+					if( density ) pointDepthAndWeightSums[thread] += _splatPointData< true , true , DensityDegree , OutData , DataSigs ... >( zero , nodeAllocator , *density , minDepthCutoff , p , out , dataField , densityKey , oneKey ? *( (DataKey*)&densityKey ) : dataKey , minDepth , pointDepthFunctor , Dim , depthBias ) * sample.weight;
 #endif // __GNUC__ && __GNUC__ < 5
 					else
 					{
@@ -1048,9 +1041,9 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 #ifdef SHOW_WARNINGS
 						#warning "you've got me gcc version<5"
 #endif // SHOW_WARNINGS
-							_splatPointData< true , true , OutData >( nodeAllocator , _leaf< true >( nodeAllocator , p , pointDepthFunctor ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
+						_splatPointData< true , true , OutData >( zero , nodeAllocator , _leaf< true >( nodeAllocator , p , pointDepthFunctor ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
 #else // !__GNUC__ || __GNUC__ >=5
-						_splatPointData< true , true , OutData , DataSigs ... >( nodeAllocator , _leaf< true >( nodeAllocator , p , pointDepthFunctor ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
+						_splatPointData< true , true , OutData , DataSigs ... >( zero , nodeAllocator , _leaf< true >( nodeAllocator , p , pointDepthFunctor ) , p , out / (Real)pow( width , Dim ) , dataField , oneKey ? *( (DataKey*)&densityKey ) : dataKey );
 #endif // __GNUC__ && __GNUC__ < 5
 						pointDepthAndWeightSums[thread] += Point< Real , 2 >( (Real)1 , (Real)maxDepth ) * sample.weight;
 					}
@@ -1067,50 +1060,75 @@ SparseNodeData< OutData , UIntPack< DataSigs ... > > FEMTree< Dim , Real >::setI
 
 template< unsigned int Dim , class Real >
 template< unsigned int DataSig , bool CreateNodes , unsigned int DensityDegree , class Data >
-SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > FEMTree< Dim , Real >::setExtrapolatedDataField( const std::vector< PointSample >& samples , const std::vector< Data >& sampleData , const DensityEstimator< DensityDegree >* density , bool nearest )
+SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > FEMTree< Dim , Real >::setExtrapolatedDataField( Data zero , const std::vector< PointSample >& samples , const std::vector< Data >& sampleData , const DensityEstimator< DensityDegree >* density , bool nearest )
 {
-	return this->template setExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( samples.size() , [&]( size_t i ) -> const PointSample & { return samples[i]; } , [&]( size_t i ) -> const Data & { return sampleData[i]; } , density , nearest );
+	return this->template setExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( zero , samples.size() , [&]( size_t i ) -> const PointSample & { return samples[i]; } , [&]( size_t i ) -> const Data & { return sampleData[i]; } , density , nearest );
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int DataSig , bool CreateNodes , unsigned int DensityDegree , class Data >
-void FEMTree< Dim , Real >::updateExtrapolatedDataField( SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > &dataField , const std::vector< PointSample >& samples , const std::vector< Data >& sampleData , const DensityEstimator< DensityDegree >* density , bool nearest )
+void FEMTree< Dim , Real >::updateExtrapolatedDataField( Data zero , SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > &dataField , const std::vector< PointSample >& samples , const std::vector< Data >& sampleData , const DensityEstimator< DensityDegree >* density , bool nearest )
 {
-	return this->template updateExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( dataField , samples.size() , [&]( size_t i ) -> const PointSample & { return samples[i]; } , [&]( size_t i ) -> const Data & { return sampleData[i]; } , density , nearest );
+	return this->template updateExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( zero , dataField , samples.size() , [&]( size_t i ) -> const PointSample & { return samples[i]; } , [&]( size_t i ) -> const Data & { return sampleData[i]; } , density , nearest );
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int DataSig , bool CreateNodes , unsigned int DensityDegree , class Data , class SampleFunctor /* = std::function< const PointSample & (size_t) >*/ , class SampleDataFunctor /* = std::function< const Data & (size_t) > */ >
-SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > FEMTree< Dim , Real >::setExtrapolatedDataField( size_t sampleNum , SampleFunctor sampleFunctor , SampleDataFunctor sampleDataFunctor , const DensityEstimator< DensityDegree >* density , bool nearest )
+SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > FEMTree< Dim , Real >::setExtrapolatedDataField( Data zero , size_t sampleNum , SampleFunctor sampleFunctor , SampleDataFunctor sampleDataFunctor , const DensityEstimator< DensityDegree >* density , bool nearest )
 {
 	SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > dataField;
-	this->template updateExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( dataField , sampleNum , sampleFunctor , sampleDataFunctor , density , nearest );
+	this->template updateExtrapolatedDataField< DataSig , CreateNodes , DensityDegree , Data >( zero , dataField , sampleNum , sampleFunctor , sampleDataFunctor , density , nearest );
 	return dataField;
 }
 
 template< unsigned int Dim , class Real >
 template< unsigned int DataSig , bool CreateNodes , unsigned int DensityDegree , class Data , class SampleFunctor /* = std::function< const PointSample & (size_t) >*/ , class SampleDataFunctor /* = std::function< const Data & (size_t) > */ >
-void FEMTree< Dim , Real >::updateExtrapolatedDataField( SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > &dataField , size_t sampleNum , SampleFunctor sampleFunctor , SampleDataFunctor sampleDataFunctor , const DensityEstimator< DensityDegree >* density , bool nearest )
+void FEMTree< Dim , Real >::updateExtrapolatedDataField( Data zero , SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim , DataSig > > &dataField , size_t sampleNum , SampleFunctor sampleFunctor , SampleDataFunctor sampleDataFunctor , const DensityEstimator< DensityDegree >* density , bool nearest )
 {
 	Allocator< FEMTreeNode > *nodeAllocator = nodeAllocators.size() ? nodeAllocators[0] : NULL;
 	LocalDepth maxDepth = _spaceRoot->maxDepth();
-	PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > densityKey;
-	PointSupportKey< IsotropicUIntPack< Dim , FEMSignature< DataSig >::Degree > > dataKey;
-	densityKey.set( _localToGlobal( maxDepth ) ) , dataKey.set( _localToGlobal( maxDepth ) );
 
-	for( node_index_type i=0 ; i<(node_index_type)sampleNum ; i++ )
+	if constexpr( CreateNodes )
 	{
-		const PointSample &sampleAndNode = sampleFunctor(i);
-		const ProjectiveData< Point< Real , Dim > , Real >& sample = sampleAndNode.sample;
-		const Data& data = sampleDataFunctor(i);
-		Point< Real , Dim > p = sample.weight==0 ? sample.data : sample.data / sample.weight;
-		if( !_InBounds(p) )
+		PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > densityKey;
+		PointSupportKey< IsotropicUIntPack< Dim , FEMSignature< DataSig >::Degree > > dataKey;
+		densityKey.set( _localToGlobal( maxDepth ) ) , dataKey.set( _localToGlobal( maxDepth ) );
+		for( node_index_type i=0 ; i<(node_index_type)sampleNum ; i++ )
 		{
-			WARN( "Point is out of bounds" );
-			continue;
+			const PointSample &sampleAndNode = sampleFunctor(i);
+			const ProjectiveData< Point< Real , Dim > , Real >& sample = sampleAndNode.sample;
+			const Data& data = sampleDataFunctor(i);
+			Point< Real , Dim > p = sample.weight==0 ? sample.data : sample.data / sample.weight;
+			if( !_InBounds(p) )
+			{
+				MK_WARN( "Point is out of bounds" );
+				continue;
+			}
+			if( nearest ) _nearestMultiSplatPointData< DensityDegree >( ProjectiveData< Data , Real >( zero ) , density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , 2 );
+			else          _multiSplatPointData< CreateNodes , false , DensityDegree >( ProjectiveData< Data , Real >( zero ) , nodeAllocator , density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , dataKey , 2 );
 		}
-		if( nearest ) _nearestMultiSplatPointData< DensityDegree >( density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , 2 );
-		else          _multiSplatPointData< CreateNodes , false , DensityDegree >( nodeAllocator , density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , dataKey , 2 );
+	}
+	else
+	{
+		std::vector< PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > > densityKeys( ThreadPool::NumThreads() );
+		std::vector< PointSupportKey< IsotropicUIntPack< Dim , FEMSignature< DataSig >::Degree > > > dataKeys( ThreadPool::NumThreads() );
+		for( unsigned int i=0 ; i<ThreadPool::NumThreads() ; i++ ) densityKeys[i].set( _localToGlobal( maxDepth ) ) , dataKeys[i].set( _localToGlobal( maxDepth ) );
+
+		ThreadPool::ParallelFor( 0 , sampleNum , [&]( unsigned int thread , size_t i ) {
+			PointSupportKey< IsotropicUIntPack< Dim , DensityDegree > > &densityKey = densityKeys[thread];
+			PointSupportKey< IsotropicUIntPack< Dim , FEMSignature< DataSig >::Degree > > &dataKey = dataKeys[thread];
+
+			const PointSample &sampleAndNode = sampleFunctor(i);
+			const ProjectiveData< Point< Real , Dim > , Real >& sample = sampleAndNode.sample;
+			const Data& data = sampleDataFunctor(i);
+			Point< Real , Dim > p = sample.weight==0 ? sample.data : sample.data / sample.weight;
+			if( !_InBounds(p) ) MK_WARN( "Point is out of bounds" );
+			else
+			{
+				if( nearest ) _nearestMultiSplatPointData< DensityDegree >( ProjectiveData< Data , Real >( zero ) , density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , 2 );
+				else          _multiSplatPointData< CreateNodes , false , DensityDegree >( ProjectiveData< Data , Real >( zero ) , nodeAllocator , density , (FEMTreeNode*)sampleAndNode.node , p , ProjectiveData< Data , Real >( data , sample.weight ) , dataField , densityKey , dataKey , 2 );
+			}
+		} );
 	}
 }
 
@@ -1135,7 +1153,7 @@ void FEMTree< Dim , Real >::_supportApproximateProlongation( void )
 #ifdef SHOW_WARNINGS
 #pragma message( "[WARNING] This may be overkill as we only need to check if the support overlaps the support of the children" )
 #endif // SHOW_WARNINGS
-		ThreadPool::Parallel_for( 0 , nodes.size() , [&]( unsigned int thread , size_t i )
+		ThreadPool::ParallelFor( 0 , nodes.size() , [&]( unsigned int thread , size_t i )
 			{
 				NeighborKey& neighborKey = neighborKeys[ thread ];
 				FEMTreeNode *node = nodes[i];
@@ -1145,7 +1163,7 @@ void FEMTree< Dim , Real >::_supportApproximateProlongation( void )
 
 				// Mark the neighbors as active
 				Pointer( FEMTreeNode* ) nodes = neighborKey.neighbors[ _localToGlobal(d) ].neighbors().data;
-				unsigned int size = neighborKey.neighbors[ _localToGlobal(d) ].neighbors.Size;
+				unsigned int size = neighborKey.neighbors[ _localToGlobal(d) ].neighbors.Size();
 				for( unsigned int i=0 ; i<size ; i++ ) SetGhostFlag( nodes[i] , false );
 			}
 		);
@@ -1178,14 +1196,14 @@ void FEMTree< Dim , Real >::_markNonBaseDirichletElements( void )
 		{
 			supportKey.setLeafNeighbors( node , neighborLeaves );
 			bool hasDirichletNeighbor = false;
-			for( int i=0 ; i<NeighborLeaves::Size ; i++ ) if( neighborLeaves.data[i] && neighborLeaves.data[i]->nodeData.getDirichletNodeFlag() ) hasDirichletNeighbor = true;
+			for( unsigned int i=0 ; i<NeighborLeaves::Size() ; i++ ) if( neighborLeaves.data[i] && neighborLeaves.data[i]->nodeData.getDirichletNodeFlag() ) hasDirichletNeighbor = true;
 			node->nodeData.setDirichletElementFlag( hasDirichletNeighbor );
 
 			if( node->children ) for( int c=0 ; c<(1<<Dim) ; c++ ) ProcessSubTree( node->children+c , supportKey , neighborLeaves );
 		}
 	};
 
-	ThreadPool::Parallel_for( 0 , baseNodes.size() , [&]( unsigned int t , size_t i ){ ProcessSubTree( baseNodes[i] , supportKeys[t] , neighborLeaves[t] ); } );
+	ThreadPool::ParallelFor( 0 , baseNodes.size() , [&]( unsigned int t , size_t i ){ ProcessSubTree( baseNodes[i] , supportKeys[t] , neighborLeaves[t] ); } );
 }
 
 template< unsigned int Dim , typename Real >
@@ -1202,7 +1220,7 @@ void FEMTree< Dim , Real >::_markBaseDirichletElements( void )
 	std::vector< FEMTreeNode* > nodes;
 	_tree.processNodes( [&]( FEMTreeNode *node ){ if( _localDepth( node )==_baseDepth && node->nodeData.getDirichletNodeFlag() ) nodes.push_back( node ) ; return _localDepth(node)<_baseDepth; } );
 
-	ThreadPool::Parallel_for( 0 , nodes.size() , [&]( unsigned int thread , size_t i )
+	ThreadPool::ParallelFor( 0 , nodes.size() , [&]( unsigned int thread , size_t i )
 		{
 			SupportKey &supportKey = supportKeys[ thread ];
 			FEMTreeNode *node = nodes[i];
@@ -1210,7 +1228,7 @@ void FEMTree< Dim , Real >::_markBaseDirichletElements( void )
 			for( LocalDepth d=0 ; d<=_baseDepth ; d++ )
 			{
 				Pointer( FEMTreeNode* ) _nodes = supportKey.neighbors[ _localToGlobal(d) ].neighbors().data;
-				unsigned int size = supportKey.neighbors[ _localToGlobal(d) ].neighbors.Size;
+				unsigned int size = supportKey.neighbors[ _localToGlobal(d) ].neighbors.Size();
 				for( unsigned int i=0 ; i<size ; i++ ) if( _nodes[i] ) SetGhostFlag( _nodes[i] , false ) , _nodes[i]->nodeData.setDirichletElementFlag( true );
 			}
 		} );
@@ -1297,7 +1315,7 @@ std::vector< node_index_type > FEMTree< Dim , Real >::_finalizeForMultigrid( Loc
 		// -- Swap the children sitting off the last node of the old children to the first node of the old children
 		FEMTreeNode *oldChildren = _tree.children;
 		FEMTreeNode *newChildren = FEMTreeNode::NewBrood( nodeAllocator , _nodeInitializer );
-		if( !oldChildren ) ERROR_OUT( "Expected children" );
+		if( !oldChildren ) MK_THROW( "Expected children" );
 		{
 			if( oldChildren[(1<<Dim)-1].children )
 			{
@@ -1421,7 +1439,7 @@ template< unsigned int Dim , class Real >
 void FEMTree< Dim , Real >::_setSpaceValidityFlags( void ) const
 {
 	const unsigned char MASK = ~( FEMTreeNodeData::SPACE_FLAG );
-	ThreadPool::Parallel_for( 0 , _sNodes.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , _sNodes.size() , [&]( unsigned int , size_t i )
 		{
 			_sNodes.treeNodes[i]->nodeData.flags &= MASK;
 			if( isValidSpaceNode( _sNodes.treeNodes[i] ) ) _sNodes.treeNodes[i]->nodeData.flags |= FEMTreeNodeData::SPACE_FLAG;
@@ -1482,7 +1500,7 @@ void FEMTree< Dim , Real >::_clipTree( const HasDataFunctor& f , LocalDepth full
 	node_index_type sz = nodeCount();
 	Pointer( char ) nodeHasData = NewPointer< char >( sz );
 	for( node_index_type i=0 ; i<sz ; i++ ) nodeHasData[i] = 0;
-	ThreadPool::Parallel_for( 0 , regularNodes.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , regularNodes.size() , [&]( unsigned int , size_t i )
 		{
 			regularNodes[i]->processNodes( [&]( FEMTreeNode *node ){ if( node->nodeData.nodeIndex!=-1 ) nodeHasData[node->nodeData.nodeIndex] = f( node ) ? 1 : 0; } );
 		} );
@@ -1497,10 +1515,10 @@ void FEMTree< Dim , Real >::_clipTree( const HasDataFunctor& f , LocalDepth full
 		return hasData;
 	};
 
-	ThreadPool::Parallel_for( 0 , regularNodes.size() , [&]( unsigned int , size_t i ){ PullHasDataFromChildren( regularNodes[i] ); } );
+	ThreadPool::ParallelFor( 0 , regularNodes.size() , [&]( unsigned int , size_t i ){ PullHasDataFromChildren( regularNodes[i] ); } );
 
 	// Mark all children of a node as ghost if none of them have data
-	ThreadPool::Parallel_for( 0 , regularNodes.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , regularNodes.size() , [&]( unsigned int , size_t i )
 		{
 			auto nodeFunctor = [&]( FEMTreeNode *node )
 			{
@@ -1521,7 +1539,7 @@ template< typename T , typename Data , unsigned int PointD , typename Constraint
 void FEMTree< Dim , Real >::_ExactPointAndDataInterpolationInfo< T , Data , PointD , ConstraintDual , SystemDual >::_init( const class FEMTree< Dim , Real >& tree , const std::vector< PointSample >& samples , ConstPointer( Data ) sampleData , bool noRescale )
 {
 	_sampleSpan.resize( tree.nodesSize() );
-	ThreadPool::Parallel_for( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
+	ThreadPool::ParallelFor( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
 	for( node_index_type i=0 ; i<(node_index_type)samples.size() ; i++ )
 	{
 		const FEMTreeNode* leaf = samples[i].node;
@@ -1570,7 +1588,7 @@ void FEMTree< Dim , Real >::_ExactPointAndDataInterpolationInfo< T , Data , Poin
 		}
 	}
 
-	ThreadPool::Parallel_for( 0 , _iData.size() , [&]( unsigned int , size_t i  )
+	ThreadPool::ParallelFor( 0 , _iData.size() , [&]( unsigned int , size_t i  )
 		{
 			Real w = _iData[i].pointInfo.weight;
 			_iData[i] /= w;
@@ -1584,8 +1602,8 @@ template< unsigned int Dim , class Real >
 template< typename T , unsigned int PointD , typename ConstraintDual , typename SystemDual >
 void FEMTree< Dim , Real >::ExactPointInterpolationInfo< T , PointD , ConstraintDual , SystemDual >::_init( const class FEMTree< Dim , Real >& tree , const std::vector< PointSample >& samples , bool noRescale )
 {
-	_sampleSpan.resize( tree.nodesSize() );
-	ThreadPool::Parallel_for( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
+	_sampleSpan.resize( tree._nodeCount );
+	ThreadPool::ParallelFor( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
 	for( node_index_type i=0 ; i<(node_index_type)samples.size() ; i++ )
 	{
 		const FEMTreeNode* leaf = samples[i].node;
@@ -1634,7 +1652,7 @@ void FEMTree< Dim , Real >::ExactPointInterpolationInfo< T , PointD , Constraint
 		}
 	}
 
-	ThreadPool::Parallel_for( 0 , _iData.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , _iData.size() , [&]( unsigned int , size_t i )
 		{
 			Real w = _iData[i].weight;
 			_iData[i] /= w;
@@ -1648,8 +1666,8 @@ template< unsigned int Dim , class Real >
 template< unsigned int PointD , typename ConstraintDual , typename SystemDual >
 void FEMTree< Dim , Real >::ExactPointInterpolationInfo< double , PointD , ConstraintDual , SystemDual >::_init( const class FEMTree< Dim , Real >& tree , const std::vector< PointSample >& samples , bool noRescale )
 {
-	_sampleSpan.resize( tree.nodesSize() );
-	ThreadPool::Parallel_for( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
+	_sampleSpan.resize( tree._nodeCount );
+	ThreadPool::ParallelFor( 0 , tree.nodesSize() , [&]( unsigned int , size_t i ){ _sampleSpan[i] = std::pair< node_index_type , node_index_type >( 0 , 0 ); } );
 	for( node_index_type i=0 ; i<(node_index_type)samples.size() ; i++ )
 	{
 		const FEMTreeNode* leaf = samples[i].node;
@@ -1683,7 +1701,7 @@ void FEMTree< Dim , Real >::ExactPointInterpolationInfo< double , PointD , Const
 	};
 	tree._spaceRoot->processNodes( nodeFunctor );
 
-	for( node_index_type i=0 ; i<samples.size() ; i++ )
+	for( node_index_type i=0 ; i<(node_index_type)samples.size() ; i++ )
 	{
 		const FEMTreeNode* leaf = samples[i].node;
 		while( leaf && !tree._isValidSpaceNode( leaf ) ) leaf = leaf->parent;
@@ -1697,7 +1715,7 @@ void FEMTree< Dim , Real >::ExactPointInterpolationInfo< double , PointD , Const
 		}
 	}
 
-	ThreadPool::Parallel_for( 0 , _iData.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , _iData.size() , [&]( unsigned int , size_t i )
 		{
 			Real w = _iData[i].weight;
 			_iData[i] /= w;
@@ -1749,7 +1767,7 @@ void FEMTree< Dim , Real >::_densifyInterpolationInfoAndSetDualConstraints( Spar
 	// Set the interior values
 	_setInterpolationInfoFromChildren( _spaceRoot , iInfo );
 
-	ThreadPool::Parallel_for( 0 , iInfo.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , iInfo.size() , [&]( unsigned int , size_t i )
 		{
 			Real w = iInfo[i].weight;
 			iInfo[i] /= w ; iInfo[i].weight = w;
@@ -1794,7 +1812,7 @@ void FEMTree< Dim , Real >::_densifyInterpolationInfoAndSetDualConstraints( Spar
 	// Set the interior values
 	_setInterpolationInfoFromChildren( _spaceRoot , iInfo );
 
-	ThreadPool::Parallel_for( 0 , iInfo.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , iInfo.size() , [&]( unsigned int , size_t i )
 		{
 			Real w = iInfo[i].pointInfo.weight;
 			iInfo[i] /= w ; iInfo[i].pointInfo.weight = w;
@@ -1860,7 +1878,7 @@ SparseNodeData< DualPointInfoBrood< Dim , Real , T , PointD > , IsotropicUIntPac
 	// Set the interior values
 	_setInterpolationInfoFromChildren( _spaceRoot , iInfo );
 
-	ThreadPool::Parallel_for( 0 , iInfo.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , iInfo.size() , [&]( unsigned int , size_t i )
 		{
 			iInfo[i].finalize();
 			for( size_t c=0 ; c<iInfo[i].size() ; c++ )
@@ -1901,7 +1919,7 @@ SparseNodeData< DualPointAndDataInfoBrood< Dim , Real , Data , T , PointD > , Is
 	// Set the interior values
 	_setInterpolationInfoFromChildren( _spaceRoot , iInfo );
 
-	ThreadPool::Parallel_for( 0 , iInfo.size() , [&]( unsigned int , size_t i )
+	ThreadPool::ParallelFor( 0 , iInfo.size() , [&]( unsigned int , size_t i )
 		{
 			iInfo[i].finalize();
 			for( size_t c=0 ; c<iInfo[i].size() ; c++ )
@@ -1926,7 +1944,7 @@ template< unsigned int Dim , class Real >
 std::vector< node_index_type > FEMTree< Dim , Real >::merge( FEMTree* tree )
 {
 	std::vector< node_index_type > map;
-	if( _depthOffset!=tree->_depthOffset ) ERROR_OUT( "depthOffsets don't match: %d != %d" , _depthOffset , tree->_depthOffset );
+	if( _depthOffset!=tree->_depthOffset ) MK_THROW( "depthOffsets don't match: %d != %d" , _depthOffset , tree->_depthOffset );
 
 	// Compute the next available index
 	node_index_type nextIndex = 0;

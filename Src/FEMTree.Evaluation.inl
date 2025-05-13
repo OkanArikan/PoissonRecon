@@ -152,7 +152,7 @@ CumulativeDerivativeValues< V , Dim , _PointD > FEMTree< Dim , Real >::_getValue
 {
 	typedef UIntPack< BSplineSupportSizes< FEMSignature< FEMSigs >::Degree >::SupportSize ... > SupportSizes;
 
-	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) WARN( "getValue assumes leaf node" );
+	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) MK_WARN( "getValue assumes leaf node" );
 	CumulativeDerivativeValues< V , Dim , _PointD > values;
 
 	PointEvaluatorState< UIntPack< FEMSigs ... > , IsotropicUIntPack< Dim , _PointD > > state;
@@ -208,12 +208,12 @@ template< unsigned int Dim , class Real >
 template< class V , unsigned int _PointD , unsigned int ... FEMSigs , unsigned int PointD >
 CumulativeDerivativeValues< V , Dim , _PointD > FEMTree< Dim , Real >::_getCenterValues( const ConstPointSupportKey< UIntPack< FEMSignature< FEMSigs >::Degree ... > >& neighborKey , const FEMTreeNode* node , ConstPointer( V ) solution , ConstPointer( V ) coarseSolution , const _Evaluator< UIntPack< FEMSigs ... > , PointD >& evaluator , int maxDepth , bool isInterior ) const
 {
-	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) ERROR_OUT( "getCenterValues assumes leaf node" );
+	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) MK_THROW( "getCenterValues assumes leaf node" );
 	typedef _Evaluator< UIntPack< FEMSigs ... > , PointD > _Evaluator;
 	typedef UIntPack< BSplineSupportSizes< FEMSignature< FEMSigs >::Degree >::SupportSize ... > SupportSizes;
 	static const unsigned int supportSizes[] = { BSplineSupportSizes< FEMSignature< FEMSigs >::Degree >::SupportSize ... };
 
-	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) ERROR_OUT( "getCenterValue assumes leaf node" );
+	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) MK_THROW( "getCenterValue assumes leaf node" );
 	CumulativeDerivativeValues< V , Dim , _PointD > values;
 
 	LocalDepth d ; LocalOffset cIdx;
@@ -320,7 +320,7 @@ template< unsigned int Dim , class Real >
 template< class V , unsigned int _PointD , unsigned int ... FEMSigs , unsigned int PointD >
 CumulativeDerivativeValues< V , Dim , _PointD > FEMTree< Dim , Real >::_getCornerValues( const ConstPointSupportKey< UIntPack< FEMSignature< FEMSigs >::Degree ... > >& neighborKey , const FEMTreeNode* node , int corner , ConstPointer( V ) solution , ConstPointer( V ) coarseSolution , const _Evaluator< UIntPack< FEMSigs ... > , PointD >& evaluator , int maxDepth , bool isInterior ) const
 {
-	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) WARN( "getValue assumes leaf node" );
+	if( IsActiveNode< Dim >( node->children ) && _localDepth( node->children )<=maxDepth ) MK_WARN( "getValue assumes leaf node" );
 	typedef _Evaluator< UIntPack< FEMSigs ... > , PointD > _Evaluator;
 	typedef UIntPack< BSplineSupportSizes< FEMSignature< FEMSigs >::Degree >::SupportSize ... > SupportSizes;
 	static const unsigned int supportSizes[] = { BSplineSupportSizes< FEMSignature< FEMSigs >::Degree >::SupportSize ... };
@@ -494,7 +494,7 @@ template< unsigned int ... FEMSigs , unsigned int PointD , typename T >
 template< unsigned int _PointD >
 CumulativeDerivativeValues< T , Dim , _PointD > FEMTree< Dim , Real >::_MultiThreadedEvaluator< UIntPack< FEMSigs ... > , PointD , T >::values( Point< Real , Dim > p , int thread , const FEMTreeNode* node )
 {
-	if( _PointD>PointD ) ERROR_OUT( "Evaluating more derivatives than available: " , _PointD , " <= " , PointD );
+	if( _PointD>PointD ) MK_THROW( "Evaluating more derivatives than available: " , _PointD , " <= " , PointD );
 	if( !node ) node = _tree->leaf( p );
 	ConstPointSupportKey< FEMDegrees >& nKey = _pointNeighborKeys[thread];
 	nKey.getNeighbors( node );
@@ -506,7 +506,7 @@ template< unsigned int ... FEMSigs , unsigned int PointD , typename T >
 template< unsigned int _PointD >
 CumulativeDerivativeValues< T , Dim , _PointD > FEMTree< Dim , Real >::_MultiThreadedEvaluator< UIntPack< FEMSigs ... > , PointD , T >::centerValues( const FEMTreeNode* node , int thread )
 {
-	if( _PointD>PointD ) ERROR_OUT( "Evaluating more derivatives than available: " , _PointD, " <= " , PointD );
+	if( _PointD>PointD ) MK_THROW( "Evaluating more derivatives than available: " , _PointD, " <= " , PointD );
 	ConstPointSupportKey< FEMDegrees >& nKey = _pointNeighborKeys[thread];
 	nKey.getNeighbors( node );
 	LocalDepth d ; LocalOffset off;
@@ -518,7 +518,7 @@ template< unsigned int ... FEMSigs , unsigned int PointD , typename T >
 template< unsigned int _PointD >
 CumulativeDerivativeValues< T , Dim , _PointD > FEMTree< Dim , Real >::_MultiThreadedEvaluator< UIntPack< FEMSigs ... > , PointD , T >::cornerValues( const FEMTreeNode* node , int corner , int thread )
 {
-	if( _PointD>PointD ) ERROR_OUT( "Evaluating more derivatives than available: " , _PointD , " <= " , PointD );
+	if( _PointD>PointD ) MK_THROW( "Evaluating more derivatives than available: " , _PointD , " <= " , PointD );
 	ConstCornerSupportKey< FEMDegrees >& nKey = _cornerNeighborKeys[thread];
 	nKey.getNeighbors( node );
 	LocalDepth d ; LocalOffset off;
@@ -551,14 +551,42 @@ void FEMTree< Dim , Real >::MultiThreadedSparseEvaluator< UIntPack< FEMSigs ... 
 }
 
 template< unsigned int Dim , class Real >
+template< unsigned int ... FEMSigs , typename T >
+template< typename AccumulationFunctor/*=std::function< void ( const T & , Real s ) > */ >
+void FEMTree< Dim , Real >::MultiThreadedSparseEvaluator< UIntPack< FEMSigs ... > , T >::accumulate( Point< Real , Dim > p , AccumulationFunctor &Accumulate , int thread , const FEMTreeNode *node )
+{
+	if( !node ) node = _tree->leaf( p );
+	ConstPointSupportKey< FEMDegrees >& nKey = _pointNeighborKeys[thread];
+	nKey.getNeighbors( node );
+	_tree->template _accumulate< T , SparseNodeData< T , FEMSignatures > , 0 , AccumulationFunctor >( _coefficients , p , _tree->_globalToLocal( node->depth() ) , *_pointEvaluator , nKey , Accumulate );
+}
+
+template< unsigned int Dim , class Real >
 template< class V , class Coefficients , unsigned int D , unsigned int ... DataSigs >
 void FEMTree< Dim , Real >::_addEvaluation( const Coefficients& coefficients , Point< Real , Dim > p , const PointEvaluator< UIntPack< DataSigs ... > , IsotropicUIntPack< Dim , D > >& pointEvaluator , const ConstPointSupportKey< UIntPack< FEMSignature< DataSigs >::Degree ... > >& dataKey , V &value ) const
 {
-	_addEvaluation< V , Coefficients , D , DataSigs ... >( coefficients , p , _globalToLocal( dataKey.depth() ) , pointEvaluator , dataKey , value );
+	auto AF = [&value]( const V &w , Real s ){ value += w * s; };
+	_accumulate< V , Coefficients , D , decltype(AF) , DataSigs ... >( coefficients , p , pointEvaluator , dataKey , AF );
 }
+
 template< unsigned int Dim , class Real >
 template< class V , class Coefficients , unsigned int D , unsigned int ... DataSigs >
 void FEMTree< Dim , Real >::_addEvaluation( const Coefficients& coefficients , Point< Real , Dim > p , LocalDepth pointDepth , const PointEvaluator< UIntPack< DataSigs ... > , IsotropicUIntPack< Dim , D > >& pointEvaluator , const ConstPointSupportKey< UIntPack< FEMSignature< DataSigs >::Degree ... > >& dataKey , V &value ) const
+{
+	auto AF = [&value]( const V &w , Real s ){ value += w * s; };
+	_accumulate< V , Coefficients , D , decltype(AF) , DataSigs... >( coefficients , p , pointDepth , pointEvaluator , dataKey , AF );
+}
+
+template< unsigned int Dim , class Real >
+template< typename V , typename Coefficients , unsigned int D , typename AccumulationFunctor , unsigned int ... DataSigs >
+void FEMTree< Dim , Real >::_accumulate( const Coefficients& coefficients , Point< Real , Dim > p , const PointEvaluator< UIntPack< DataSigs ... > , IsotropicUIntPack< Dim , D > >& pointEvaluator , const ConstPointSupportKey< UIntPack< FEMSignature< DataSigs >::Degree ... > >& dataKey , AccumulationFunctor &Accumulate ) const
+{
+	_accumulate< V , Coefficients , D , AccumulationFunctor , DataSigs ... >( coefficients , p , _globalToLocal( dataKey.depth() ) , pointEvaluator , dataKey , Accumulate );
+}
+
+template< unsigned int Dim , class Real >
+template< typename V , typename Coefficients , unsigned int D , typename AccumulationFunctor , unsigned int ... DataSigs >
+void FEMTree< Dim , Real >::_accumulate( const Coefficients& coefficients , Point< Real , Dim > p , LocalDepth pointDepth , const PointEvaluator< UIntPack< DataSigs ... > , IsotropicUIntPack< Dim , D > >& pointEvaluator , const ConstPointSupportKey< UIntPack< FEMSignature< DataSigs >::Degree ... > >& dataKey , AccumulationFunctor &Accumulate ) const
 {
 	typedef UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportSize ... > SupportSizes;
 	PointEvaluatorState< UIntPack< DataSigs ... > , ZeroUIntPack< Dim > > state;
@@ -570,7 +598,7 @@ void FEMTree< Dim , Real >::_addEvaluation( const Coefficients& coefficients , P
 	{
 		{
 			const FEMTreeNode* node = dataKey.neighbors[d].neighbors.data[ WindowIndex< UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportSize ... > , UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportEnd ... > >::Index ];
-			if( !node ) ERROR_OUT( "Point is not centered on a node: " , p , " " , WindowIndex< UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportSize ... > , UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportEnd ... > >::Index , " @ " , d );
+			if( !node ) MK_THROW( "Point is not centered on a node: " , p , " " , WindowIndex< UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportSize ... > , UIntPack< BSplineSupportSizes< FEMSignature< DataSigs >::Degree >::SupportEnd ... > >::Index , " @ " , d );
 			pointEvaluator.initEvaluationState( p , _localDepth( node ) , state );
 		}
 		double scratch[Dim+1];
@@ -582,7 +610,7 @@ void FEMTree< Dim , Real >::_addEvaluation( const Coefficients& coefficients , P
 			if( v )
 			{
 				LocalDepth d ; LocalOffset off ; _localDepthAndOffset( nodes[i] , d , off );
-				value += (*v) * (Real)state.value( off , derivatives );
+				Accumulate( *v , (Real)state.value( off , derivatives ) );
 			}
 		}
 	}
@@ -641,7 +669,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridEvaluate( const DenseNodeData< V 
 				offsets() , cornerValues()
 			);
 		}
-		ThreadPool::Parallel_for( 0 , cellCount , [&]( unsigned int , size_t c )
+		ThreadPool::ParallelFor( 0 , cellCount , [&]( unsigned int , size_t c )
 		{
 			V& value = values[c];
 			int idx[Dim];
@@ -726,7 +754,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridEvaluate( const DenseNodeData< V 
 				offsets() , centerValues()
 			);
 		}
-		ThreadPool::Parallel_for( 0 , cellCount , [&]( unsigned int , size_t c )
+		ThreadPool::ParallelFor( 0 , cellCount , [&]( unsigned int , size_t c )
 		{
 			V& value = values[c];
 			int idx[Dim];
@@ -830,7 +858,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridEvaluate( const DenseNodeData< V 
 				offsets() , cornerValues()
 			);
 		}
-		ThreadPool::Parallel_for( 0 , cellCount , [&]( unsigned int , size_t c )
+		ThreadPool::ParallelFor( 0 , cellCount , [&]( unsigned int , size_t c )
 			{
 				V &value = values[c];
 				int idx[Dim];
@@ -915,7 +943,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridEvaluate( const DenseNodeData< V 
 				offsets() , centerValues()
 			);
 		}
-		ThreadPool::Parallel_for( 0 , cellCount , [&]( unsigned int , size_t c )
+		ThreadPool::ParallelFor( 0 , cellCount , [&]( unsigned int , size_t c )
 			{
 				V &value = values[c];
 				int idx[Dim];
@@ -1048,7 +1076,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridUpSample( const DenseNodeData< V 
 		for( int dd=0 ; dd<Dim ; dd++ ) count *= gridDimensions[_depth].dim[dd];
 		upSampledCoefficients = NewPointer< V >( count );
 		memset( upSampledCoefficients , 0 , sizeof( V ) * count );
-		ThreadPool::Parallel_for( _sNodesBegin(_depth) , _sNodesEnd(_depth) , [&]( unsigned int , size_t i )
+		ThreadPool::ParallelFor( _sNodesBegin(_depth) , _sNodesEnd(_depth) , [&]( unsigned int , size_t i )
 		{
 			if( !_outOfBounds( UIntPack< DataSigs ... >() , _sNodes.treeNodes[i] ) )
 			{
@@ -1072,7 +1100,7 @@ Pointer( V ) FEMTree< Dim , Real >::regularGridUpSample( const DenseNodeData< V 
 		Pointer( V ) _coefficients = NewPointer< V >( count );
 		memset( _coefficients , 0 , sizeof( V ) * count );
 		if( _depth<=_maxDepth )
-			ThreadPool::Parallel_for( _sNodesBegin(_depth) , _sNodesEnd(_depth) , [&]( unsigned int , size_t i )
+			ThreadPool::ParallelFor( _sNodesBegin(_depth) , _sNodesEnd(_depth) , [&]( unsigned int , size_t i )
 			{
 				if( !_outOfBounds( UIntPack< DataSigs ... >() , _sNodes.treeNodes[i] ) )
 				{
@@ -1117,7 +1145,7 @@ V FEMTree< Dim , Real >::average( const DenseNodeData< V , UIntPack< DataSigs ..
 		double __begin[Dim] , __end[Dim];
 		for( int dd=0 ; dd<Dim ; dd++ ) off[dd] = center , __begin[dd] = 0 , __end[dd] = 1;
 		double integral = FEMIntegrator::Integral( UIntPack< DataSigs ... >() , d , off , __begin , __end );
-		ThreadPool::Parallel_for( _sNodesBegin(d) , _sNodesEnd(d) , [&]( unsigned int thread , size_t i )
+		ThreadPool::ParallelFor( _sNodesBegin(d) , _sNodesEnd(d) , [&]( unsigned int thread , size_t i )
 		{
 			if( _isValidFEM1Node( _sNodes.treeNodes[i] ) )
 			{
@@ -1149,7 +1177,7 @@ SparseNodeData< CumulativeDerivativeValues< Real , Dim , PointD > , IsotropicUIn
 	{
 		std::vector< ConstPointSupportKey< UIntPack< FEMSignature< FEMSigs >::Degree ... > > > neighborKeys( ThreadPool::NumThreads() );
 		for( size_t i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( _localToGlobal( d ) );
-		ThreadPool::Parallel_for( _sNodesBegin(d) , _sNodesEnd(d) , [&]( unsigned int thread , size_t i )
+		ThreadPool::ParallelFor( _sNodesBegin(d) , _sNodesEnd(d) , [&]( unsigned int thread , size_t i )
 		{
 			if( _isValidSpaceNode( _sNodes.treeNodes[i] ) )
 			{

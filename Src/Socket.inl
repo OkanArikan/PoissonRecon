@@ -30,7 +30,7 @@ template<class C>
 bool ReceiveOnSocket( Socket& s , Pointer( C ) data , size_t dataSize )
 {
 #ifdef ARRAY_DEBUG
-	if( dataSize>data.maximum()*sizeof( C ) ) ERROR_OUT( "Size of socket read exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
+	if( dataSize>data.maximum()*sizeof( C ) ) MK_THROW( "Size of socket read exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
 #endif // ARRAY_DEBUG
 	unsigned long long rec=0;
 	while( rec!=dataSize )
@@ -38,8 +38,8 @@ bool ReceiveOnSocket( Socket& s , Pointer( C ) data , size_t dataSize )
 		int tmp = socket_receive( s , ( ( Pointer( char ) ) data) + rec , dataSize-rec );
 		if( tmp<=0 )
 		{
-			if( !tmp ) ERROR_OUT( "Connection Closed" );
-			else       ERROR_OUT( "socket_receive from client failed: " , LastSocketError() );
+			if( !tmp ) MK_THROW( "Connection Closed" );
+			else       MK_THROW( "socket_receive from client failed: " , LastSocketError() );
 			return false;
 		}
 		rec+=tmp;
@@ -51,11 +51,11 @@ template<class C>
 bool SendOnSocket( Socket& s , ConstPointer( C ) data , size_t dataSize )
 {
 #ifdef ARRAY_DEBUG
-	if( dataSize>data.maximum()*sizeof( C ) ) ERROR_OUT( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
+	if( dataSize>data.maximum()*sizeof( C ) ) MK_THROW( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
 #endif // ARRAY_DEBUG
 	if( socket_send( s , ( ConstPointer( char ) )data , dataSize )<0 )
 	{
-		ERROR_OUT( "socket_send to client failed (" , s , "): " , LastSocketError() );
+		MK_THROW( "socket_send to client failed (" , s , "): " , LastSocketError() );
 		return false;
 	}
 	return true;
@@ -68,7 +68,7 @@ template<class C>
 void ReceiveOnSocket( Socket& s , Pointer( C ) data , size_t dataSize , const char* errorMessage , ... )
 {
 #ifdef ARRAY_DEBUG
-	if( dataSize>data.maximum()*sizeof( C ) ) ERROR_OUT( "Size of socket read exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
+	if( dataSize>data.maximum()*sizeof( C ) ) MK_THROW( "Size of socket read exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
 #endif // ARRAY_DEBUG
 	unsigned long long rec=0;
 	while( rec!=dataSize )
@@ -76,8 +76,8 @@ void ReceiveOnSocket( Socket& s , Pointer( C ) data , size_t dataSize , const ch
 		int tmp = socket_receive( s , ( ( Pointer( char ) ) data) + rec , dataSize-rec );
 		if( tmp<=0 )
 		{
-			if( !tmp ) ERROR_OUT( "Connection Closed" );
-			else       ERROR_OUT( "socket_receive from client failed: " , LastSocketError() );
+			if( !tmp ) MK_THROW( "Connection Closed" );
+			else       MK_THROW( "socket_receive from client failed: " , LastSocketError() );
 			{
 				fprintf( stderr , "\t" );
 				va_list args;
@@ -86,7 +86,7 @@ void ReceiveOnSocket( Socket& s , Pointer( C ) data , size_t dataSize , const ch
 				va_end( args );
 				fprintf( stderr , "\n" );
 			}
-			exit(0);
+			exit( EXIT_FAILURE );
 		}
 		rec+=tmp;
 	}
@@ -96,26 +96,20 @@ template<class C>
 void SendOnSocket( Socket& s , ConstPointer( C ) data , size_t dataSize , const char* errorMessage , ... )
 {
 #ifdef ARRAY_DEBUG
-	if( dataSize>data.maximum()*sizeof( C ) ) ERROR_OUT( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
+	if( dataSize>data.maximum()*sizeof( C ) ) MK_THROW( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
 #endif // ARRAY_DEBUG
 	if( socket_send( s , ( ConstPointer( char ) )data , dataSize )<0 )
-	{
-		fprintf( stderr , "socket_send to client failed: %s\n" , LastSocketError());
-		exit(0);
-	}
+		MK_THROW( "socket_send to client failed: " , LastSocketError() );
 }
 
 template<class C>
 void SendOnSocket( Socket& s , Pointer( C ) data , size_t dataSize , const char* errorMessage , ... )
 {
 #ifdef ARRAY_DEBUG
-	if( dataSize>data.maximum()*sizeof( C ) ) ERROR_OUT( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
+	if( dataSize>data.maximum()*sizeof( C ) ) MK_THROW( "Size of socket write exceeds source maximum: " , dataSize , " > " , data.maximum()*sizeof( C ) );
 #endif // ARRAY_DEBUG
 	if( socket_send( s , ( ConstPointer( char ) )data , dataSize )<0 )
-	{
-		fprintf( stderr , "socket_send to client failed: %s\n" , LastSocketError());
-		exit(0);
-	}
+		MK_THROW( "socket_send to client failed: " , LastSocketError() );
 }
 
 inline bool GetHostEndpointAddress( EndpointAddress* address , const char* prefix )

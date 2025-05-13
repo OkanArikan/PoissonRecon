@@ -51,131 +51,159 @@ size_t FEMTreeInitializer< Dim , Real >::_Initialize( FEMTreeNode &node , int ma
 }
 
 template< unsigned int Dim , class Real >
-template< typename AuxData >
-size_t FEMTreeInitializer< Dim , Real >::Initialize( StreamInitializationData &sid , FEMTreeNode &root , typename InputPointStream< AuxData >::StreamType &pointStream , AuxData zeroData , int maxDepth , std::vector< PointSample >& samplePoints , std::vector< typename InputPointStream< AuxData >::DataType > &sampleData , bool mergeNodeSamples , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , typename InputPointStream< AuxData >::DataType & ) > ProcessData )
+template< typename IsValidFunctor /*=std::function< bool ( const Point< Real , Dim > & , const AuxData &... ) >*/ , typename ProcessFunctor/*=std::function< bool ( FEMTreeNode & , const Point< Real , Dim > & , const AuxData &... ) >*/ , typename ... AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData ... > &pointStream , AuxData ... d , int maxDepth ,                                                                  Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , IsValidFunctor IsValid , ProcessFunctor Process )
 {
-	return Initialize< AuxData >( sid , root , pointStream , zeroData , maxDepth , [&]( Point< Real , Dim > ){ return maxDepth; } , samplePoints , sampleData , mergeNodeSamples , nodeAllocator , NodeInitializer , ProcessData );
+	return Initialize< IsValidFunctor , ProcessFunctor , AuxData ... >( root , pointStream , d... , maxDepth , [&]( Point< Real , Dim > ){ return maxDepth; } , nodeAllocator , NodeInitializer , IsValid , Process );
 }
 
 template< unsigned int Dim , class Real >
-template< typename AuxData >
-size_t FEMTreeInitializer< Dim , Real >::Initialize( StreamInitializationData &sid , FEMTreeNode& root , typename InputPointStream< AuxData >::StreamType &pointStream , AuxData zeroData , int maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , std::vector< PointSample >& samplePoints , std::vector< typename InputPointStream< AuxData >::DataType > &sampleData , bool mergeNodeSamples , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , typename InputPointStream< AuxData >::DataType & ) > ProcessData )
+template< typename IsValidFunctor/*=std::function< bool ( const Point< Real , Dim > & , const AuxData &... ) >*/ , typename ProcessFunctor/*=std::function< bool ( FEMTreeNode & , const Point< Real , Dim > & , const AuxData &... ) >*/ , typename ... AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData ... > &pointStream , AuxData ... d , int maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , IsValidFunctor IsValid , ProcessFunctor Process )
 {
 	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( root );
-
-
 	auto Leaf = [&]( FEMTreeNode& root , Point< Real , Dim > p , unsigned int maxDepth )
-	{
-		for( int d=0 ; d<Dim ; d++ ) if( p[d]<0 || p[d]>1 ) return (FEMTreeNode*)NULL;
-		Point< Real , Dim > center;
-		Real width;
-		typename FEMTree< Dim , Real >::LocalDepth depth;
-		typename FEMTree< Dim , Real >::LocalOffset offset;
-		root.centerAndWidth( center , width );
-		root.depthAndOffset( depth , offset );
-
-		FEMTreeNode* node = &root;
-		while( depth<(int)maxDepth )
 		{
-			if( !node->children ) node->template initChildren< false >( nodeAllocator , NodeInitializer );
-			int cIndex = FEMTreeNode::ChildIndex( center , p );
-			node = node->children + cIndex;
-			width /= 2;
+			for( int d=0 ; d<Dim ; d++ ) if( p[d]<0 || p[d]>1 ) return (FEMTreeNode*)NULL;
+			Point< Real , Dim > center;
+			Real width;
+			typename FEMTree< Dim , Real >::LocalDepth depth;
+			typename FEMTree< Dim , Real >::LocalOffset offset;
+			root.centerAndWidth( center , width );
+			root.depthAndOffset( depth , offset );
 
-			depth++;
-			for( int dd=0 ; dd<Dim ; dd++ )
-				if( (cIndex>>dd) & 1 ) center[dd] += width/2 , offset[dd] = (offset[dd]<<1) | 1;
-				else                   center[dd] -= width/2 , offset[dd] = (offset[dd]<<1) | 0;
-		}
-		return node;
-	};
+			FEMTreeNode* node = &root;
+
+			while( depth<(int)maxDepth )
+			{
+				if( !node->children ) node->template initChildren< false >( nodeAllocator , NodeInitializer );
+				int cIndex = FEMTreeNode::ChildIndex( center , p );
+				node = node->children + cIndex;
+				width /= 2;
+
+				depth++;
+				for( int dd=0 ; dd<Dim ; dd++ )
+					if( (cIndex>>dd) & 1 ) center[dd] += width/2 , offset[dd] = (offset[dd]<<1) | 1;
+					else                   center[dd] -= width/2 , offset[dd] = (offset[dd]<<1) | 0;
+			}
+			return node;
+		};
 
 	// Add the point data
-	size_t outOfBoundPoints = 0 , badData = 0 , pointCount = 0;
+	size_t outOfBoundPoints = 0 , badDataCount = 0 , pointCount = 0;
+	Point< Real , Dim > p;
+	while( pointStream.read( p , d... ) )
 	{
-		std::vector< node_index_type > &nodeToIndexMap = sid._nodeToIndexMap;
-		typename InputPointStream< AuxData >::PointAndDataType pd;
-		pd.template get<1>() = zeroData;
-		while( pointStream.read( pd ) )
-		{
-			Point< Real , Dim > p = pd.template get<0>();
-			typename InputPointStream< AuxData >::DataType d = InputPointStream< AuxData >::GetData( pd );
-			Real weight = ProcessData( p , d );
-			if( weight<=0 ){ badData++ ; continue; }
-			FEMTreeNode *temp = Leaf( root , p , pointDepthFunctor(p) );
-			if( !temp ){ outOfBoundPoints++ ; continue; }
-			node_index_type nodeIndex = temp->nodeData.nodeIndex;
-			if( mergeNodeSamples )
-			{
-				if( nodeIndex>=(node_index_type)nodeToIndexMap.size() ) nodeToIndexMap.resize( nodeIndex+1 , -1 );
-				node_index_type idx = nodeToIndexMap[ nodeIndex ];
-				if( idx==-1 )
-				{
-					idx = (node_index_type)samplePoints.size();
-					nodeToIndexMap[ nodeIndex ] = idx;
-					samplePoints.resize( idx+1 ) , samplePoints[idx].node = temp;
-					sampleData.resize( idx+1 );
-					samplePoints[idx].sample = ProjectiveData< Point< Real , Dim > , Real >( p*weight , weight );
-					sampleData[idx] = d*weight;
-				}
-				else
-				{
-					samplePoints[idx].sample += ProjectiveData< Point< Real , Dim > , Real >( p*weight , weight );
-					sampleData[ idx ] += d*weight;
-				}
-			}
-			else
-			{
-				node_index_type idx = (node_index_type)samplePoints.size();
-				samplePoints.resize( idx+1 ) , sampleData.resize( idx+1 );
-				samplePoints[idx].node = temp;
-				samplePoints[idx].sample = ProjectiveData< Point< Real , Dim > , Real >( p*weight , weight );
-				sampleData[ idx ] = d*weight;
-			}
-			pointCount++;
-		}
-		pointStream.reset();
+		// Check if the data is good
+		if( !IsValid( p , d... ) ){ badDataCount++ ; continue; }
+
+		// Check that the position is in-range
+		FEMTreeNode *leaf = Leaf( root , p , pointDepthFunctor(p) );
+		if( !leaf ){ outOfBoundPoints++ ; continue; }
+
+		// Process the data
+		if( Process( *leaf , p , d ... ) ) pointCount++;
 	}
+	pointStream.reset();
 	return pointCount;
 }
 
 template< unsigned int Dim , class Real >
-void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode& root , const std::vector< Point< Real , Dim > >& vertices , const std::vector< SimplexIndex< Dim-1 , node_index_type > >& simplices , int maxDepth , std::vector< PointSample >& samples , bool mergeNodeSamples , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
+template< typename AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData > &pointStream , AuxData zeroData , int maxDepth , std::vector< PointSample >& samplePoints , std::vector< AuxData > &sampleData , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , AuxData & ) > ProcessData )
 {
-	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( root );
-
-	std::vector< node_index_type > nodeToIndexMap;
-	ThreadPool::Parallel_for( 0 , simplices.size() , [&]( unsigned int t , size_t  i )
-	{
-		Simplex< Real , Dim , Dim-1 > s;
-		for( int k=0 ; k<Dim ; k++ ) s[k] = vertices[ simplices[i][k] ];
-		if( mergeNodeSamples ) _AddSimplex< true >( root , s , maxDepth , samples , &nodeToIndexMap , nodeAllocators.size() ? nodeAllocators[t] : NULL , NodeInitializer );
-		else                   _AddSimplex< true >( root , s , maxDepth , samples , NULL ,            nodeAllocators.size() ? nodeAllocators[t] : NULL , NodeInitializer );
-	}
-	);
+	struct StreamInitializationData sid;
+	return Initialize< AuxData >( sid , root , pointStream , zeroData , maxDepth , samplePoints , sampleData , nodeAllocator , NodeInitializer , ProcessData );
 }
 
 template< unsigned int Dim , class Real >
-void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , const std::vector< ProjectiveData< Point< Real , Dim > , Real > > &points , int maxDepth , std::vector< PointSample >& samples , bool mergeNodeSamples , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
+template< typename AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData > &pointStream , AuxData zeroData , int maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , std::vector< PointSample >& samplePoints , std::vector< AuxData > &sampleData , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , AuxData & ) > ProcessData )
+{
+	struct StreamInitializationData sid;
+	return Initialize< AuxData >( sid , root , pointStream , zeroData , maxDepth , pointDepthFunctor , samplePoints , sampleData , nodeAllocator , NodeInitializer , ProcessData );
+}
+
+template< unsigned int Dim , class Real >
+template< typename AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( struct StreamInitializationData &sid , FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData > &pointStream , AuxData zeroData , int maxDepth , std::vector< PointSample >& samplePoints , std::vector< AuxData > &sampleData , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , AuxData & ) > ProcessData )
+{
+	return Initialize< AuxData >( sid , root , pointStream , zeroData , maxDepth , [&]( Point< Real , Dim > ){ return maxDepth; } , samplePoints , sampleData , nodeAllocator , NodeInitializer , ProcessData );
+}
+
+template< unsigned int Dim , class Real >
+template< typename AuxData >
+size_t FEMTreeInitializer< Dim , Real >::Initialize( struct StreamInitializationData &sid , FEMTreeNode &root , InputDataStream< Point< Real , Dim > , AuxData > &pointStream , AuxData zeroData , int maxDepth , std::function< int ( Point< Real , Dim > ) > pointDepthFunctor , std::vector< PointSample >& samplePoints , std::vector< AuxData > &sampleData , Allocator< FEMTreeNode >* nodeAllocator , std::function< void ( FEMTreeNode& ) > NodeInitializer , std::function< Real ( const Point< Real , Dim > & , AuxData & ) > ProcessData )
+{
+	Real weight;
+	std::vector< node_index_type > &nodeToIndexMap = sid._nodeToIndexMap;
+
+	auto IsValid = [&]( const Point< Real , Dim > &p , AuxData & d )
+		{
+			weight = ProcessData( p , d );
+			return weight>0;
+		};
+	auto Process = [&]( FEMTreeNode &node , const Point< Real , Dim > &p , AuxData &d )
+		{
+			node_index_type nodeIndex = node.nodeData.nodeIndex;
+			// If the node's index exceeds what's stored in the node-to-index map, grow the node-to-index map
+			if( nodeIndex>=(node_index_type)nodeToIndexMap.size() ) nodeToIndexMap.resize( nodeIndex+1 , -1 );
+
+			node_index_type idx = nodeToIndexMap[ nodeIndex ];
+			if( idx==-1 )
+			{
+				idx = (node_index_type)samplePoints.size();
+				nodeToIndexMap[ nodeIndex ] = idx;
+				samplePoints.resize( idx+1 ) , samplePoints[idx].node = &node;
+				sampleData.resize( idx+1 );
+				samplePoints[idx].sample = ProjectiveData< Point< Real , Dim > , Real >( p*weight , weight );
+				sampleData[idx] = d*weight;
+			}
+			else
+			{
+				samplePoints[idx].sample += ProjectiveData< Point< Real , Dim > , Real >( p*weight , weight );
+				sampleData[ idx ] += d*weight;
+			}
+			return true;
+		};
+	return Initialize< decltype(IsValid) , decltype(Process) , AuxData >( root , pointStream , zeroData , maxDepth , pointDepthFunctor , nodeAllocator , NodeInitializer , IsValid , Process );
+}
+
+template< unsigned int Dim , class Real >
+void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , const std::vector< Point< Real , Dim > >& vertices , const std::vector< SimplexIndex< Dim-1 , node_index_type > >& simplices , int maxDepth , std::vector< PointSample >& samples , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
 {
 	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( root );
 
 	std::vector< node_index_type > nodeToIndexMap;
-	ThreadPool::Parallel_for( 0 , points.size() , [&]( unsigned int t , size_t  i )
+	ThreadPool::ParallelFor( 0 , simplices.size() , [&]( unsigned int t , size_t  i )
 	{
-		_AddSample< true >( root , points[i] , maxDepth , samples , mergeNodeSamples ? &nodeToIndexMap :NULL , nodeAllocators.size() ? nodeAllocators[t] : NULL , NodeInitializer );
+		Simplex< Real , Dim , Dim-1 > s;
+		for( int k=0 ; k<Dim ; k++ ) s[k] = vertices[ simplices[i][k] ];
+		_AddSimplex< true >( root , s , maxDepth , samples , &nodeToIndexMap , nodeAllocators.size() ? nodeAllocators[t] : NULL , NodeInitializer );
 	} );
 }
 
 template< unsigned int Dim , class Real >
-void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , const std::vector< ProjectiveData< Point< Real , Dim > , Real > > &points , int maxDepth , std::vector< PointSample >& samples , bool mergeNodeSamples )
+void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , const std::vector< ProjectiveData< Point< Real , Dim > , Real > > &points , int maxDepth , std::vector< PointSample >& samples , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
 {
 	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( root );
 
 	std::vector< node_index_type > nodeToIndexMap;
-	ThreadPool::Parallel_for( 0 , points.size() , [&]( unsigned int t , size_t  i )
+	ThreadPool::ParallelFor( 0 , points.size() , [&]( unsigned int t , size_t  i )
 	{
-		_AddSample( root , points[i] , maxDepth , samples , mergeNodeSamples ? &nodeToIndexMap : NULL );
+		_AddSample< true >( root , points[i] , maxDepth , samples , &nodeToIndexMap , nodeAllocators.size() ? nodeAllocators[t] : NULL , NodeInitializer );
+	} );
+}
+
+template< unsigned int Dim , class Real >
+void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode &root , const std::vector< ProjectiveData< Point< Real , Dim > , Real > > &points , int maxDepth , std::vector< PointSample >& samples )
+{
+	typename FEMTreeNode::SubTreeExtractor subtreeExtractor( root );
+
+	std::vector< node_index_type > nodeToIndexMap;
+	ThreadPool::ParallelFor( 0 , points.size() , [&]( unsigned int t , size_t  i )
+	{
+		_AddSample( root , points[i] , maxDepth , samples , &nodeToIndexMap );
 	} );
 }
 
@@ -425,7 +453,7 @@ size_t FEMTreeInitializer< Dim , Real >::_AddSimplex( FEMTreeNode* node , Simple
 template< unsigned int Dim , class Real >
 void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode& root , const std::vector< Point< Real , Dim > >& vertices , const std::vector< SimplexIndex< Dim-1 , node_index_type > >& simplices , unsigned int regularGridDepth , unsigned int maxDepth , std::vector< NodeSimplices< Dim , Real > >& nodeSimplices , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
 {
-	if( regularGridDepth>maxDepth ) ERROR_OUT( "Regular grid depth cannot excceed maximum depth: " , regularGridDepth , " <= " , maxDepth );
+	if( regularGridDepth>maxDepth ) MK_THROW( "Regular grid depth cannot excceed maximum depth: " , regularGridDepth , " <= " , maxDepth );
 
 	// Allocate the tree up to the prescribed depth
 	const Real RegularGridWidth = (Real)( 1./(1<<regularGridDepth) );
@@ -500,7 +528,7 @@ void FEMTreeInitializer< Dim , Real >::Initialize( FEMTreeNode& root , const std
 
 		std::vector< Allocator< FEMTreeNode > * > _nodeAllocators( ThreadPool::NumThreads() );
 		for( int i=0 ; i<_nodeAllocators.size() ; i++ ) _nodeAllocators[i] = nodeAllocators.size() ? nodeAllocators[i] : NULL;
-		ThreadPool::Parallel_for( 0 , geometricCellCount , [&]( unsigned int t , size_t i )
+		ThreadPool::ParallelFor( 0 , geometricCellCount , [&]( unsigned int t , size_t i )
 		{
 			auto &cellSimplices = raster[ cellIndices[i] ];
 			for( int j=0 ; j<cellSimplices.size() ; j++ ) _AddSimplex< false , true >( *roots[i] , cellSimplices[j].first , cellSimplices[j].second , maxDepth , nodeSimplices , nodeToIndexMap , _nodeAllocators[t] , NodeInitializer );
@@ -745,7 +773,7 @@ typename std::enable_if< _Dim!=1 , DenseNodeData< typename FEMTreeInitializer< D
 {
 	static_assert( Dim==_Dim , "[ERROR] Dimensions don't match" );
 	std::vector< Point< Real , Dim > > normals( simplices.size() );
-	ThreadPool::Parallel_for
+	ThreadPool::ParallelFor
 	(
 		0 , simplices.size() ,
 		[&]( unsigned int , size_t i )
@@ -762,7 +790,7 @@ template< unsigned int _Dim >
 typename std::enable_if< _Dim==1 , DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , IsotropicUIntPack< Dim , FEMTrivialSignature > > >::type FEMTreeInitializer< Dim , Real >::GetGeometryNodeDesignators( FEMTreeNode *root , const std::vector< Point< Real , Dim > >& vertices , const std::vector< SimplexIndex< Dim-1 , node_index_type > >& simplices , unsigned int regularGridDepth , unsigned int maxDepth , std::vector< Allocator< FEMTreeNode > * > &nodeAllocators , std::function< void ( FEMTreeNode& ) > NodeInitializer )
 {
 	static_assert( Dim==_Dim , "[ERROR] Dimensions don't match" );
-	if( simplices.size()%2 ) ERROR_OUT( "Expected even number of hull points: " , simplices.size() );
+	if( simplices.size()%2 ) MK_THROW( "Expected even number of hull points: " , simplices.size() );
 	struct HullPoint
 	{
 		Real x;
@@ -796,7 +824,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 
 	geometryNodeDesignators.resize( nodeCount );
 
-	ThreadPool::Parallel_for( 0 , nodeSimplices.size() , [&]( unsigned int , size_t i ){ for( FEMTreeNode *node=nodeSimplices[i].node ; node ; node=node->parent ) geometryNodeDesignators[node] = GeometryNodeType::BOUNDARY; } );
+	ThreadPool::ParallelFor( 0 , nodeSimplices.size() , [&]( unsigned int , size_t i ){ for( FEMTreeNode *node=nodeSimplices[i].node ; node ; node=node->parent ) geometryNodeDesignators[node] = GeometryNodeType::BOUNDARY; } );
 
 	// Propagate out from the boundary nodes
 	std::vector< const FEMTreeNode * > interiorNodes , exteriorNodes;
@@ -806,7 +834,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 	for( int i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( maxDepth );
 
 	// In the first pass, flood-fill from the geometry-containing nodes
-	ThreadPool::Parallel_for( 0 , nodeSimplices.size() , [&]( unsigned int thread , size_t i )
+	ThreadPool::ParallelFor( 0 , nodeSimplices.size() , [&]( unsigned int thread , size_t i )
 	{
 		std::vector< const FEMTreeNode * > &interiorNodes = _interiorNodes[thread];
 		std::vector< const FEMTreeNode * > &exteriorNodes = _exteriorNodes[thread];
@@ -877,7 +905,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 		interiorNodes.reserve( interiorCount ) , exteriorNodes.reserve( exteriorCount );
 		for( int i=0 ; i<_interiorNodes.size() ; i++ ) for( int j=0 ; j<_interiorNodes[i].size() ; j++ )
 		{
-			if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) ERROR_OUT( "Interior node has geometry" );
+			if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) MK_THROW( "Interior node has geometry" );
 			else if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::UNKNOWN )
 			{
 				geometryNodeDesignators[ _interiorNodes[i][j] ] = GeometryNodeType::INTERIOR;
@@ -886,7 +914,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 		}
 		for( int i=0 ; i<_exteriorNodes.size() ; i++ ) for( int j=0 ; j<_exteriorNodes[i].size() ; j++ )
 		{
-			if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) ERROR_OUT( "Exterior node has geometry" );
+			if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) MK_THROW( "Exterior node has geometry" );
 			else if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::UNKNOWN )
 			{
 				geometryNodeDesignators[ _exteriorNodes[i][j] ] = GeometryNodeType::EXTERIOR;
@@ -901,7 +929,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 		for( int i=0 ; i<_interiorNodes.size() ; i++ ) _interiorNodes[i].resize( 0 );
 		for( int i=0 ; i<_exteriorNodes.size() ; i++ ) _exteriorNodes[i].resize( 0 );
 
-		ThreadPool::Parallel_for( 0 , interiorNodes.size() , [&]( unsigned int thread , size_t i )
+		ThreadPool::ParallelFor( 0 , interiorNodes.size() , [&]( unsigned int thread , size_t i )
 		{
 			std::vector< const FEMTreeNode * > &__interiorNodes = _interiorNodes[thread];
 			NeighborKey &neighborKey = neighborKeys[thread];
@@ -926,7 +954,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 			}
 		} );
 
-		ThreadPool::Parallel_for( 0 , exteriorNodes.size() , [&]( unsigned int thread , size_t i )
+		ThreadPool::ParallelFor( 0 , exteriorNodes.size() , [&]( unsigned int thread , size_t i )
 		{
 			std::vector< const FEMTreeNode * > &__exteriorNodes = _exteriorNodes[thread];
 			NeighborKey &neighborKey = neighborKeys[thread];
@@ -962,7 +990,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 
 			for( int i=0 ; i<_interiorNodes.size() ; i++ ) for( int j=0 ; j<_interiorNodes[i].size() ; j++ )
 			{
-				if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) ERROR_OUT( "Interior node has geometry" );
+				if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) MK_THROW( "Interior node has geometry" );
 				else if( geometryNodeDesignators[ _interiorNodes[i][j] ]==GeometryNodeType::UNKNOWN )
 				{
 					geometryNodeDesignators[ _interiorNodes[i][j] ] = GeometryNodeType::INTERIOR;
@@ -971,7 +999,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 			}
 			for( int i=0 ; i<_exteriorNodes.size() ; i++ ) for( int j=0 ; j<_exteriorNodes[i].size() ; j++ )
 			{
-				if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) ERROR_OUT( "Exterior node has geometry" );
+				if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::BOUNDARY ) MK_THROW( "Exterior node has geometry" );
 				else if( geometryNodeDesignators[ _exteriorNodes[i][j] ]==GeometryNodeType::UNKNOWN )
 				{
 					geometryNodeDesignators[ _exteriorNodes[i][j] ] = GeometryNodeType::EXTERIOR;
@@ -1022,7 +1050,7 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 		}
 	};
 	CorrectDesignatorsFromChildren( root );
-	if( correctionCount ) WARN( "Adjusted designator inconsistencies: " , correctionCount );
+	if( correctionCount ) MK_WARN( "Adjusted designator inconsistencies: " , correctionCount );
 
 	std::function< void ( FEMTreeNode * ) > SetUnknownDesignatorsFromParents = [&]( FEMTreeNode *node )
 	{
@@ -1042,13 +1070,13 @@ DenseNodeData< typename FEMTreeInitializer< Dim , Real >::GeometryNodeType , Iso
 					else if( geometryNodeDesignators[node->children+c]==GeometryNodeType::EXTERIOR ) exteriorCount++;
 					else if( geometryNodeDesignators[node->children+c]==GeometryNodeType::BOUNDARY ) boundaryCount++;
 				}
-				if( interiorCount+exteriorCount+boundaryCount!=(1<<Dim) ) ERROR_OUT( "Children are unknown" );
-				else if( boundaryCount==0 && interiorCount!=0 && exteriorCount!=0 ) ERROR_OUT( "Expected boundary between interior/exterior" );
+				if( interiorCount+exteriorCount+boundaryCount!=(1<<Dim) ) MK_THROW( "Children are unknown" );
+				else if( boundaryCount==0 && interiorCount!=0 && exteriorCount!=0 ) MK_THROW( "Expected boundary between interior/exterior" );
 				else if( boundaryCount!=0 ) geometryNodeDesignators[node] = GeometryNodeType::BOUNDARY;
 				else if( interiorCount!=0 ) geometryNodeDesignators[node] = GeometryNodeType::INTERIOR;
 				else if( exteriorCount!=0 ) geometryNodeDesignators[node] = GeometryNodeType::INTERIOR;
 			}
-			else if( geometryNodeDesignators[node]==GeometryNodeType::UNKNOWN ) ERROR_OUT( "Leaf node is unknown" );
+			else if( geometryNodeDesignators[node]==GeometryNodeType::UNKNOWN ) MK_THROW( "Leaf node is unknown" );
 	};
 	SetUnknownDesignatorsFromParents( root );
 	SetUnknownDesignatorsFromChildren( root );
@@ -1079,23 +1107,23 @@ void FEMTreeInitializer< Dim , Real >::TestGeometryNodeDesignators( const FEMTre
 				}
 				if( boundaryCount || ( interiorCount && exteriorCount ) )
 				{
-					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::BOUNDARY ) ERROR_OUT( "Expected unknown or boundary, got: " , type , " | " , node->depthAndOffset() );
+					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::BOUNDARY ) MK_THROW( "Expected unknown or boundary, got: " , type , " | " , node->depthAndOffset() );
 				}
 				else if( interiorCount==(1<<Dim) )
 				{
-					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::INTERIOR ) ERROR_OUT( "Expected unknown or interior, got: " , type , " | " , node->depthAndOffset() );
+					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::INTERIOR ) MK_THROW( "Expected unknown or interior, got: " , type , " | " , node->depthAndOffset() );
 				}
 				else if( exteriorCount==(1<<Dim) )
 				{
-					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::EXTERIOR ) ERROR_OUT( "Expected unknown or exterior, got: " , type , " | " , node->depthAndOffset() );
+					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::EXTERIOR ) MK_THROW( "Expected unknown or exterior, got: " , type , " | " , node->depthAndOffset() );
 				}
 				else if( interiorCount )
 				{
-					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::INTERIOR && type!=GeometryNodeType::BOUNDARY ) ERROR_OUT( "Expected unknown, interior , or boundary, got: " , type , " | " , node->depthAndOffset() );
+					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::INTERIOR && type!=GeometryNodeType::BOUNDARY ) MK_THROW( "Expected unknown, interior , or boundary, got: " , type , " | " , node->depthAndOffset() );
 				}
 				else if( exteriorCount==(1<<Dim) )
 				{
-					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::EXTERIOR && type!=GeometryNodeType::BOUNDARY ) ERROR_OUT( "Expected unknown, exterior, or boundary, got: " , type , " | " , node->depthAndOffset() );
+					if( type!=GeometryNodeType::UNKNOWN && type!=GeometryNodeType::EXTERIOR && type!=GeometryNodeType::BOUNDARY ) MK_THROW( "Expected unknown, exterior, or boundary, got: " , type , " | " , node->depthAndOffset() );
 				}
 			}
 
@@ -1115,12 +1143,12 @@ void FEMTreeInitializer< Dim , Real >::PushGeometryNodeDesignatorsToFiner( const
 		{
 			if( geometryNodeDesignators[node]==GeometryNodeType::UNKNOWN )
 				if( node!=root ) geometryNodeDesignators[node] = geometryNodeDesignators[node->parent];
-				else ERROR_OUT( "Root node should not be unknown" );
+				else MK_THROW( "Root node should not be unknown" );
 			else if( node!=root && geometryNodeDesignators[node]!=geometryNodeDesignators[node->parent] && geometryNodeDesignators[node->parent]!=GeometryNodeType::BOUNDARY )
 			{
 				int d , off[Dim];
 				node->depthAndOffset( d , off );
-				ERROR_OUT( "Child designator does not match parent: " , geometryNodeDesignators[node] , " != " , geometryNodeDesignators[node->parent] , " | " , d , " @ ( " , off[0] , " , " , off[1] , " , " , off[2] , " ) " );
+				MK_THROW( "Child designator does not match parent: " , geometryNodeDesignators[node] , " != " , geometryNodeDesignators[node->parent] , " | " , d , " @ ( " , off[0] , " , " , off[1] , " , " , off[2] , " ) " );
 			}
 			if( node->depth()<(long long)maxDepth && node->children ) for( int c=0 ; c<(1<<Dim) ; c++ ) Push( node->children+c );
 		}
@@ -1149,7 +1177,7 @@ void FEMTreeInitializer< Dim , Real >::PullGeometryNodeDesignatorsFromFiner( con
 				else if( exteriorCount==(1<<Dim) ) geometryNodeDesignators[node] = GeometryNodeType::EXTERIOR;
 				else                               geometryNodeDesignators[node] = GeometryNodeType::BOUNDARY;
 			}
-			else if( geometryNodeDesignators[node]==GeometryNodeType::UNKNOWN ) ERROR_OUT( "Should not have unknown nodes" );
+			else if( geometryNodeDesignators[node]==GeometryNodeType::UNKNOWN ) MK_THROW( "Should not have unknown nodes" );
 		}
 	};
 	Pull( root );

@@ -41,7 +41,7 @@ std::string FileDir( std::string dir , std::string header , unsigned int clientI
 
 std::string FileName( std::string dir , unsigned int slab , unsigned int slabs , unsigned int filesPerDir )
 {
-	if( filesPerDir<=1 ) ERROR_OUT( "Need at least two files per directory" );
+	if( filesPerDir<=1 ) MK_THROW( "Need at least two files per directory" );
 
 	if( !dir.length() ) dir = std::string( "." );
 	if( dir.back()!=FileSeparator ) dir.push_back( FileSeparator );
@@ -80,85 +80,6 @@ std::string PointSetInfoName( std::string dir , std::string header )
 }
 
 
-
-////////////
-// Extent //
-////////////
-template< typename Real >
-Extent< Real >::Extent( void )
-{
-	Real inf = std::numeric_limits< Real >::infinity();
-	for( unsigned int d=0 ; d<DirectionN ; d++ ) extents[d].first = inf , extents[d].second = -inf;
-}
-
-template< typename Real >
-void Extent< Real >::add( Point< Real , 3 > p )
-{
-	for( unsigned int d=0 ; d<DirectionN ; d++ )
-	{
-		extents[d].first  = std::min< Real >( extents[d].first  , Point< Real , 3 >::Dot( p , Directions[d] ) );
-		extents[d].second = std::max< Real >( extents[d].second , Point< Real , 3 >::Dot( p , Directions[d] ) );
-	}
-}
-
-template< typename Real >
-Extent< Real > Extent< Real >::operator + ( const Extent< Real > &e ) const
-{
-	Extent _e;
-	for( unsigned int d=0 ; d<DirectionN ; d++ )
-	{
-		_e.extents[d].first  = std::min< Real >( extents[d].first  , e.extents[d].first  );
-		_e.extents[d].second = std::max< Real >( extents[d].second , e.extents[d].second );
-	}
-	return _e;
-}
-
-template< typename Real >
-const Point< Real , 3 > Extent< Real >::Directions[] =
-{
-	Point< Real , 3 >( 1 , 0 , 0 ) ,				// 0
-	Point< Real , 3 >( 0 , 1 , 0 ) ,				// 1
-	Point< Real , 3 >( 0 , 0 , 1 ) ,				// 2
-#ifdef AXIS_ONLY_ALIGNMENT
-#else // !AXIS_ONLY_ALIGNMENT
-	Point< Real , 3 >( 1 , 1 , 0 )/(Real)sqrt(2.) ,	// 3
-	Point< Real , 3 >( 1 , 0 , 1 )/(Real)sqrt(2.) ,	// 4
-	Point< Real , 3 >( 0 , 1 , 1 )/(Real)sqrt(2.) ,	// 5
-	Point< Real , 3 >( 1 ,-1 , 0 )/(Real)sqrt(2.) ,	// 6
-	Point< Real , 3 >( 1 , 0 ,-1 )/(Real)sqrt(2.) ,	// 7
-	Point< Real , 3 >( 0 , 1 ,-1 )/(Real)sqrt(2.)	// 8
-#endif
-};
-
-template< typename Real >
-const unsigned int Extent< Real >::Frames[ DirectionN ][3] =
-{
-	{1,2,0} ,
-	{2,0,1} ,
-	{0,1,2} ,
-#ifdef AXIS_ONLY_ALIGNMENT
-#else // !AXIS_ONLY_ALIGNMENT
-	{2,6,3} ,
-	{7,1,4} ,
-	{0,8,5} ,
-	{3,2,6} ,
-	{1,4,7} ,
-	{5,0,8}
-#endif // AXIS_ONLY_ALIGNMENT
-};
-
-template< typename Real >
-std::ostream &operator << ( std::ostream &os , const Extent< Real > &e )
-{
-	for( unsigned int d=0 ; d<Extent< Real >::DirectionN ; d++ )
-	{
-		os << Extent< Real >::Directions[d] << " : [ " << e.extents[d].first << " , " << e.extents[d].second << " ]";
-		os << "\t(" << e.extents[d].second - e.extents[d].first << " )" << std::endl;
-	}
-	return os;
-}
-
-
 //////////////////
 // PointSetInfo //
 //////////////////
@@ -174,16 +95,16 @@ PointSetInfo< Real , Dim >::PointSetInfo( unsigned int slabs ) : modelToUnitCube
 template< typename Real , unsigned int Dim >
 PointSetInfo< Real , Dim >::PointSetInfo( BinaryStream &stream )
 {
-	if( !stream.read( header ) ) ERROR_OUT( "Failed to read header" );
-	if( !stream.read( modelToUnitCube ) ) ERROR_OUT( "Failed to read model-to-unit-cube transform" );
-	if( !stream.read( pointsPerSlab ) ) ERROR_OUT( "Failed to read points-per-slab" );
+	if( !stream.read( header ) ) MK_THROW( "Failed to read header" );
+	if( !stream.read( modelToUnitCube ) ) MK_THROW( "Failed to read model-to-unit-cube transform" );
+	if( !stream.read( pointsPerSlab ) ) MK_THROW( "Failed to read points-per-slab" );
 	{
 		size_t sz;
-		if( !stream.read( sz ) ) ERROR_OUT( "Failed to read number of auxiliary properties" );
+		if( !stream.read( sz ) ) MK_THROW( "Failed to read number of auxiliary properties" );
 		auxiliaryProperties.resize(sz);
 		for( size_t i=0 ; i<sz ; i++ ) auxiliaryProperties[i].read( stream );
 	}
-	if( !stream.read( filesPerDir ) ) ERROR_OUT( "Failed to read files-per-directory" );
+	if( !stream.read( filesPerDir ) ) MK_THROW( "Failed to read files-per-directory" );
 }
 
 template< typename Real , unsigned int Dim >
@@ -203,12 +124,12 @@ void PointSetInfo< Real , Dim >::write( BinaryStream &stream ) const
 void RemovePointSlabDirs( std::string dir ){ std::filesystem::remove_all( dir ); }
 void CreatePointSlabDirs( std::string dir , unsigned int count , unsigned int filesPerDir )
 {
-	if( filesPerDir<=1 ) ERROR_OUT( "Need at least two files per directory" );
+	if( filesPerDir<=1 ) MK_THROW( "Need at least two files per directory" );
 	if( !dir.length() ) dir = std::string( "." );
 	if( dir.back()!=FileSeparator ) dir += std::string(1,FileSeparator);
 
 	try{ std::filesystem::create_directories( dir ); }
-	catch( ... ){ ERROR_OUT( "Failed to create directory: " , dir ); }
+	catch( ... ){ MK_THROW( "Failed to create directory: " , dir ); }
 
 	unsigned int depth = 0;
 	{
@@ -234,7 +155,7 @@ void CreatePointSlabDirs( std::string dir , unsigned int count , unsigned int fi
 				sStream << dir << i << FileSeparator;
 				std::string _dir = sStream.str();
 				try{ std::filesystem::create_directories( _dir ); }
-				catch( ... ){ ERROR_OUT( "Failed to create directory: " , _dir ); }
+				catch( ... ){ MK_THROW( "Failed to create directory: " , _dir ); }
 				MakeDirs( _dir , std::min< unsigned int >( count-(i*_filesPerDir) , _filesPerDir ) , depth-1 , filesPerDir );
 			}
 		}
@@ -337,7 +258,7 @@ protected:
 					}
 				}
 			}
-			if( minIndex==-1 ) ERROR_OUT( "Could not find a solution: [ " , start , " , " , end , " ) " , interiorBoundaries );
+			if( minIndex==-1 ) MK_THROW( "Could not find a solution: [ " , start , " , " , end , " ) " , interiorBoundaries );
 			_solutions[start][end][interiorBoundaries].e = minEnergy;
 			_solutions[start][end][interiorBoundaries].idx = minIndex;
 			return minEnergy;
@@ -440,7 +361,7 @@ size_t Partition::size( unsigned int i ) const
 size_t Partition::size( unsigned int i , unsigned int padSize ) const
 #endif // ADAPTIVE_PADDING
 {
-	if( i>_starts.size() ) ERROR_OUT( "Index out of bounds: 0 <= " , i , " <= " , _starts.size() );
+	if( i>_starts.size() ) MK_THROW( "Index out of bounds: 0 <= " , i , " <= " , _starts.size() );
 #ifdef ADAPTIVE_PADDING
 	std::pair< unsigned int , unsigned int > r = range( i );
 #else // !ADAPTIVE_PADDING
@@ -519,13 +440,15 @@ double Partition::maxEnergy( unsigned int padSize ) const
 
 unsigned int Partition::slabs( void ) const { return (unsigned int)_slabSizes.size(); }
 
+unsigned int Partition::partitions( void ) const{ return (unsigned int)_starts.size()+1; }
+
 ///////////////////////////////
 // Read/Write Ply Properties //
 ///////////////////////////////
 long ReadPLYProperties( FILE *fp , std::vector< PlyProperty > &properties )
 {
 	size_t sz;
-	if( fread( &sz , sizeof( size_t ) , 1 , fp )!=1 ) ERROR_OUT( "Failed to read property size" );
+	if( fread( &sz , sizeof( size_t ) , 1 , fp )!=1 ) MK_THROW( "Failed to read property size" );
 	properties.resize( sz );
 	FileStream fs(fp);
 	for( size_t i=0 ; i<sz ; i++ ) properties[i].read( fs );
@@ -535,7 +458,7 @@ long ReadPLYProperties( FILE *fp , std::vector< PlyProperty > &properties )
 long ReadPLYProperties( const char *fileName , std::vector< PlyProperty > &properties )
 {
 	FILE *fp = fopen( fileName , "rb" );
-	if( !fp ) ERROR_OUT( "Could not open file for reading: " , fileName );
+	if( !fp ) MK_THROW( "Could not open file for reading: " , fileName );
 	long pos = ReadPLYProperties( fp , properties );
 	fclose( fp );
 	return pos;
@@ -553,7 +476,7 @@ long WritePLYProperties( FILE *fp , const std::vector< PlyProperty > &properties
 long WritePLYProperties( const char *fileName , const std::vector< PlyProperty > &properties )
 {
 	FILE *fp = fopen( fileName , "wb" );
-	if( !fp ) ERROR_OUT( "Could not open file for writing: " , fileName );
+	if( !fp ) MK_THROW( "Could not open file for writing: " , fileName );
 	long pos = WritePLYProperties( fp , properties );
 	fclose( fp );
 	return pos;
@@ -568,13 +491,13 @@ BufferedBinaryInputDataStream< InputFactory >::BufferedBinaryInputDataStream( co
 
 	if( !_bufferSize )
 	{
-		WARN_ONCE( "BufferSize cannot be zero , setting to one" );
+		MK_WARN_ONCE( "BufferSize cannot be zero , setting to one" );
 		_bufferSize = 1;
 	}
 	_elementSize = _factory.bufferSize();
 	_buffer = AllocPointer< char >( _elementSize*_bufferSize );
 	_fp = fopen( fileName , "rb" );
-	if( !_fp ) ERROR_OUT( "Could not open file for reading: " , fileName );
+	if( !_fp ) MK_THROW( "Could not open file for reading: " , fileName );
 	std::vector< PlyProperty > properties;
 	_inset = ReadPLYProperties( _fp , properties );
 }
@@ -595,7 +518,7 @@ void BufferedBinaryInputDataStream< InputFactory >::reset( void )
 }
 
 template< typename InputFactory >
-bool BufferedBinaryInputDataStream< InputFactory >::base_read( Data &d )
+bool BufferedBinaryInputDataStream< InputFactory >::read( Data &d )
 {
 	if( _current==_inBuffer ) 
 	{
@@ -619,13 +542,13 @@ BufferedBinaryOutputDataStream< OutputFactory >::BufferedBinaryOutputDataStream(
 {
 	if( !_bufferSize )
 	{
-		WARN_ONCE( "BufferSize cannot be zero , setting to one" );
+		MK_WARN_ONCE( "BufferSize cannot be zero , setting to one" );
 		_bufferSize = 1;
 	}
 	_elementSize = _factory.bufferSize();
 	_buffer = AllocPointer< char >( _elementSize*_bufferSize );
 	_fp = fopen( fileName , "wb" );
-	if( !_fp ) ERROR_OUT( "Could not open file for writing: " , fileName );
+	if( !_fp ) MK_THROW( "Could not open file for writing: " , fileName );
 	std::vector< PlyProperty > properties( factory.plyWriteNum() );
 	for( unsigned int i=0 ; i<factory.plyWriteNum() ; i++ ) properties[i] = factory.plyWriteProperty(i);
 	_inset = WritePLYProperties( _fp , properties );
@@ -647,7 +570,7 @@ void BufferedBinaryOutputDataStream< OutputFactory >::reset( void )
 }
 
 template< typename OutputFactory >
-void BufferedBinaryOutputDataStream< OutputFactory >::base_write( const Data &d )
+size_t BufferedBinaryOutputDataStream< OutputFactory >::write( const Data &d )
 {
 	if( _current==_bufferSize ) 
 	{
@@ -655,5 +578,8 @@ void BufferedBinaryOutputDataStream< OutputFactory >::base_write( const Data &d 
 		_current = 0;
 	}
 	_factory.toBuffer( d , _buffer + _elementSize*_current );
-	_current++;
+	return _current++;
 }
+
+template< typename OutputFactory >
+size_t BufferedBinaryOutputDataStream< OutputFactory >::size( void ) const { return _current; }

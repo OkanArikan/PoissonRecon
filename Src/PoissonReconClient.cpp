@@ -43,31 +43,28 @@ DAMAGE.
 
 #define DEFAULT_DIMENSION 3
 
-cmdLineParameter< std::string >
+using namespace PoissonRecon;
+
+CmdLineParameter< std::string >
 	Address( "address" , "127.0.0.1" );
 
-cmdLineParameter< int >
+CmdLineParameter< int >
 	MaxMemoryGB( "maxMemory" , 0 ) ,
-#ifdef _OPENMP
-	ParallelType( "parallel" , (int)ThreadPool::OPEN_MP ) ,
-#else // !_OPENMP
-	ParallelType( "parallel" , (int)ThreadPool::THREAD_POOL ) ,
-#endif // _OPENMP
-	ScheduleType( "schedule" , (int)ThreadPool::DefaultSchedule ) ,
-	ThreadChunkSize( "chunkSize" , (int)ThreadPool::DefaultChunkSize ) ,
-	Threads( "threads" , (int)std::thread::hardware_concurrency() ) ,
+	ParallelType( "parallel" , 0 ) ,
+	ScheduleType( "schedule" , (int)ThreadPool::Schedule ) ,
+	ThreadChunkSize( "chunkSize" , (int)ThreadPool::ChunkSize ) ,
 	MultiClient( "multi" , 1 ) ,
 	Port( "port" , 0 ) ,
 	PeakMemorySampleMS( "sampleMS" , 10 );
 
-cmdLineReadable
+CmdLineReadable
 	Pause( "pause" );
 
 
-cmdLineReadable* params[] =
+CmdLineReadable* params[] =
 {
 	&Port , &MultiClient , &Address ,
-	&MaxMemoryGB , &ParallelType , &ScheduleType , &ThreadChunkSize , &Threads ,
+	&MaxMemoryGB , &ParallelType , &ScheduleType , &ThreadChunkSize ,
 	&Pause ,
 	&PeakMemorySampleMS ,
 	NULL
@@ -79,7 +76,6 @@ void ShowUsage( char* ex )
 	printf( "\t --%s <server port>\n" , Port.name );
 	printf( "\t[--%s <multiplicity of serial sub-clients>=%d]\n" , MultiClient.name , MultiClient.value );
 	printf( "\t[--%s <server connection address>=%s]\n" , Address.name , Address.value.c_str() );
-	printf( "\t[--%s <num threads>=%d]\n" , Threads.name , Threads.value );
 	printf( "\t[--%s <parallel type>=%d]\n" , ParallelType.name , ParallelType.value );
 	for( size_t i=0 ; i<ThreadPool::ParallelNames.size() ; i++ ) printf( "\t\t%d] %s\n" , (int)i , ThreadPool::ParallelNames[i].c_str() );
 	printf( "\t[--%s <schedue type>=%d]\n" , ScheduleType.name , ScheduleType.value );
@@ -123,7 +119,7 @@ void Reconstruct( unsigned int degree , std::vector< Socket > &serverSockets )
 	{
 		case 1: return Reconstruct< Real , Dim , BType , 1 >( serverSockets );
 		case 2: return Reconstruct< Real , Dim , BType , 2 >( serverSockets );
-		default: ERROR_OUT( "Only B-Splines of degree 1 - 2 are supported" );
+		default: MK_THROW( "Only B-Splines of degree 1 - 2 are supported" );
 	}
 }
 
@@ -135,7 +131,7 @@ void Reconstruct( BoundaryType bType , unsigned int degree , std::vector< Socket
 		case BOUNDARY_FREE:      return Reconstruct< Real , Dim , BOUNDARY_FREE      >( degree , serverSockets );
 		case BOUNDARY_NEUMANN:   return Reconstruct< Real , Dim , BOUNDARY_NEUMANN   >( degree , serverSockets );
 		case BOUNDARY_DIRICHLET: return Reconstruct< Real , Dim , BOUNDARY_DIRICHLET >( degree , serverSockets );
-		default: ERROR_OUT( "Not a valid boundary type: " , bType );
+		default: MK_THROW( "Not a valid boundary type: " , bType );
 	}
 }
 
@@ -146,8 +142,8 @@ void Reconstruct( std::vector< Socket > &serverSockets )
 	unsigned int degree;
 	for( unsigned int i=0 ; i<serverSockets.size() ; i++ )
 	{
-		if( !SocketStream( serverSockets[i] ).read( bType ) ) ERROR_OUT( "Failed to read boundary-type" );
-		if( !SocketStream( serverSockets[i] ).read( degree ) ) ERROR_OUT( "Failed to read degree" );
+		if( !SocketStream( serverSockets[i] ).read( bType ) ) MK_THROW( "Failed to read boundary-type" );
+		if( !SocketStream( serverSockets[i] ).read( degree ) ) MK_THROW( "Failed to read degree" );
 	}
 	Reconstruct< Real , Dim >( bType , degree , serverSockets );
 }
@@ -157,7 +153,7 @@ void Reconstruct( std::vector< Socket > &serverSockets )
 int main( int argc , char* argv[] )
 {
 #ifdef ARRAY_DEBUG
-	WARN( "Array debugging enabled" );
+	MK_WARN( "Array debugging enabled" );
 #endif // ARRAY_DEBUG
 #ifdef USE_DOUBLE
 	typedef double Real;
@@ -167,7 +163,7 @@ int main( int argc , char* argv[] )
 	static const unsigned int Dim = DEFAULT_DIMENSION;
 
 	Timer timer;
-	cmdLineParse( argc-1 , &argv[1] , params );
+	CmdLineParse( argc-1 , &argv[1] , params );
 
 	if( !Port.set )
 	{
@@ -176,9 +172,9 @@ int main( int argc , char* argv[] )
 	}
 
 	if( MaxMemoryGB.value>0 ) SetPeakMemoryMB( MaxMemoryGB.value<<10 );
-	ThreadPool::DefaultChunkSize = ThreadChunkSize.value;
-	ThreadPool::DefaultSchedule = (ThreadPool::ScheduleType)ScheduleType.value;
-	ThreadPool::Init( (ThreadPool::ParallelType)ParallelType.value , Threads.value );
+	ThreadPool::ChunkSize = ThreadChunkSize.value;
+	ThreadPool::Schedule = (ThreadPool::ScheduleType)ScheduleType.value;
+	ThreadPool::ParallelizationType= (ThreadPool::ParallelType)ParallelType.value;
 
 	std::vector< Socket > serverSockets( MultiClient.value , NULL );
 	for( unsigned int i=0 ; i<(unsigned int)MultiClient.value ; i++ ) serverSockets[i] = GetConnectSocket( Address.value.c_str() , Port.value , SOCKET_CONNECT_WAIT , false );
@@ -192,12 +188,10 @@ int main( int argc , char* argv[] )
 		Reconstruct< Real , Dim >( serverSockets );
 #endif // FAST_COMPILE
 
-		Merge< Real , Dim >( serverSockets );
+		if constexpr( Dim==3 ) Merge< Real , Dim >( serverSockets );
 
 		for( unsigned int i=0 ; i<serverSockets.size() ; i++ ) CloseSocket( serverSockets[i] );
 	}
-
-	ThreadPool::Terminate();
 
 	if( Pause.set )
 	{

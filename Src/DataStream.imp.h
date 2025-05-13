@@ -34,256 +34,360 @@ DAMAGE.
 #include "VertexFactory.h"
 #include "Ply.h"
 
-////////////////////////////////
-// Vector-backed data streams //
-////////////////////////////////
-template< typename Data >
-struct VectorBackedInputDataStream : public InputDataStream< Data >
+namespace PoissonRecon
 {
-	VectorBackedInputDataStream( const std::vector< Data > &data ) : _data(data) , _current(0) {}
-	void reset( void ) { _current = 0; }
-
-protected:
-	const std::vector< Data > &_data;
-	size_t _current;
-
-	bool base_read( Data &d ){ if( _current<_data.size() ){ d = _data[_current++] ; return true; } else return false; }
-};
-
-template< typename Data >
-struct VectorBackedOutputDataStream : public OutputDataStream< Data >
-{
-	VectorBackedOutputDataStream( std::vector< Data > &data ) : _data(data) {}
-
-protected:
-	std::vector< Data > &_data;
-
-	void base_write( const Data &d ){ _data.push_back(d); }
-};
-
-////////////////////////////////////////////////////////////////////
-// File-backed data stream (assumes Data is statically allocated) //
-////////////////////////////////////////////////////////////////////
-template< typename Data >
-struct FileBackedInputDataStream : public InputDataStream< Data >
-{
-	// It is assumed that the file pointer was open for binary reading
-	FileBackedInputDataStream( FILE *fp ) : _fp(fp) {}
-	void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
-
-protected:
-	FILE *_fp;
-
-	bool base_read( Data &d ){ return fread( &d , sizeof(Data) , 1 , _fp )==1; }
-};
-
-template< typename Data >
-struct FileBackedOutputDataStream : public OutputDataStream< Data >
-{
-	// It is assumed that the file pointer was open for binary writing
-	FileBackedOutputDataStream( FILE *fp ) : _fp(fp) {}
-
-protected:
-	FILE *_fp;
-
-	void base_write( const Data &d ){ fwrite( &d , sizeof(Data) , 1 , _fp ); }
-};
-
-/////////////////////////////////////////////////////////////////////////////////////////////
-// File-backed data stream  specialized for vectors (assumes Data is statically allocated) //
-/////////////////////////////////////////////////////////////////////////////////////////////
-template< typename Data >
-struct FileBackedInputDataStream< std::vector< Data > > : public InputDataStream< std::vector< Data > >
-{
-	// It is assumed that the file pointer was open for binary reading
-	FileBackedInputDataStream( FILE *fp ) : _fp(fp) {}
-	void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
-
-protected:
-	FILE *_fp;
-
-	bool base_read( std::vector< Data > &d )
+	////////////////////////////////
+	// Vector-backed data streams //
+	////////////////////////////////
+	template< typename Data >
+	struct VectorBackedInputDataStream : public InputDataStream< Data >
 	{
-		unsigned int pSize;
-		if( fread( &pSize , sizeof(unsigned int) , 1 , _fp )==1 )
+		VectorBackedInputDataStream( const std::vector< Data > &data ) : _data(data) , _current(0) {}
+		void reset( void ) { _current = 0; }
+
+		bool read( Data &d ){ if( _current<_data.size() ){ d = _data[_current++] ; return true; } else return false; }
+
+	protected:
+		const std::vector< Data > &_data;
+		size_t _current;
+	};
+
+	template< typename Data >
+	struct VectorBackedInputIndexedDataStream : public InputIndexedDataStream< Data >
+	{
+		VectorBackedInputIndexedDataStream( const std::vector< std::pair< size_t , Data > > &data ) : _data(data) , _current(0) {}
+		void reset( void ) { _current = 0; }
+
+		bool read( size_t &idx , Data &d )
 		{
-			d.resize( pSize );
-			if( fread( &d[0] , sizeof(Data) , pSize , _fp )==pSize ) return true;
-			ERROR_OUT( "Failed to read polygon from file" );
-			return true;
+			if( _current<_data.size() )
+			{
+				idx = _data[_current].first;
+				d = _data[_current].second;
+				_current++;
+				return true;
+			}
+			else return false;
 		}
-		else return false;
-	}
-};
 
-template< typename Data >
-struct FileBackedOutputDataStream< std::vector< Data > > : public OutputDataStream< std::vector< Data > >
-{
-	// It is assumed that the file pointer was open for binary writing
-	FileBackedOutputDataStream( FILE *fp ) : _fp(fp) {}
+	protected:
+		const std::vector< std::pair< size_t , Data > > &_data;
+		size_t _current;
+	};
 
-
-protected:
-	FILE *_fp;
-
-	void base_write( const std::vector< Data > &d )
+	template< typename Data >
+	struct VectorBackedOutputDataStream : public OutputDataStream< Data >
 	{
-		unsigned int pSize = (unsigned int)d.size();
-		fwrite( &pSize , sizeof(unsigned int) , 1 , _fp );
-		fwrite( &d[0] , sizeof(Data) , pSize , _fp );
-	}
-};
+		VectorBackedOutputDataStream( std::vector< Data > &data ) : _data(data) {}
+		size_t write( const Data &d ){ size_t idx = _data.size() ; _data.push_back(d) ; return idx; }
+		size_t size( void ) const { return _data.size(); }
+	protected:
+		std::vector< Data > &_data;
+	};
 
-////////////////////////////////////////////////////////
-// File-backed stream with data desribed by a factory //
-////////////////////////////////////////////////////////
-template< typename Factory >
-struct FileBackedInputFactoryTypeStream : public InputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
-	// It is assumed that the file pointer was open for binary reading
-	FileBackedInputFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
-	~FileBackedInputFactoryTypeStream( void ){ DeletePointer( _buffer ); }
-	void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
-
-protected:
-	FILE *_fp;
-	const Factory _factory;
-	Pointer( char ) _buffer;
-	const size_t _bufferSize;
-
-	bool base_read( Data &d ){ if( fread( _buffer , sizeof(unsigned char) , _bufferSize , _fp )==_bufferSize ){ _factory.fromBuffer( _buffer , d ) ; return true; } else return false; }
-};
-
-template< typename Factory >
-struct FileBackedOutputFactoryTypeStream : public OutputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
-
-	// It is assumed that the file pointer was open for binary reading
-	FileBackedOutputFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
-	~FileBackedOutputFactoryTypeStream( void ){ DeletePointer( _buffer ); }
-
-protected:
-	FILE *_fp;
-	const Factory _factory;
-	Pointer( char ) _buffer;
-	const size_t _bufferSize;
-
-	void base_write( const Data &d ){ _factory.toBuffer( d , _buffer ) ; fwrite( _buffer , sizeof(unsigned char) , _bufferSize , _fp ); }
-};
+	template< typename Data >
+	struct VectorBackedOutputIndexedDataStream : public OutputIndexedDataStream< Data >
+	{
+		VectorBackedOutputIndexedDataStream( std::vector< std::pair< size_t , Data > > &data ) : _data(data) {}
+		size_t write( const size_t &idx , const Data &d )
+		{
+			size_t sz = _data.size();
+			_data.push_back( std::make_pair( idx , d ) );
+			return idx;
+		}
+		size_t size( void ) const { return _data.size(); }
+	protected:
+		std::vector< std::pair< size_t , Data > > &_data;
+	};
 
 
-///////////////////////////////////////////////////////////////////////////////////
-// File-backed data streams, with functionality for reading/writing from/to disk //
-///////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////
+	// File-backed data stream (assumes Data is statically allocated) //
+	////////////////////////////////////////////////////////////////////
+	template< typename Data >
+	struct FileBackedInputDataStream : public InputDataStream< Data >
+	{
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedInputDataStream( FILE *fp ) : _fp(fp) {}
+		void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+		bool read( Data &d ){ return fread( &d , sizeof(Data) , 1 , _fp )==1; }
 
-template< typename Factory >
-struct ASCIIInputDataStream : public InputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+	protected:
+		FILE *_fp;
+	};
 
-	ASCIIInputDataStream( const char* fileName , const Factory &factory );
-	~ASCIIInputDataStream( void );
-	void reset( void );
+	template< typename Data >
+	struct FileBackedOutputDataStream : public OutputDataStream< Data >
+	{
+		// It is assumed that the file pointer was open for binary writing
+		FileBackedOutputDataStream( FILE *fp ) : _fp(fp) {}
+		size_t write( const Data &d ){ fwrite( &d , sizeof(Data) , 1 , _fp ) ; return _sz++; }
+		size_t size( void ) const { return _sz; }
 
-protected:
-	const Factory _factory;
-	FILE *_fp;
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+	};
 
-	bool base_read( Data &d );
-};
+	/////////////////////////////////////////////////////////////////////////////////////////////
+	// File-backed data stream  specialized for vectors (assumes Data is statically allocated) //
+	/////////////////////////////////////////////////////////////////////////////////////////////
+	template< typename Data >
+	struct FileBackedInputDataStream< std::vector< Data > > : public InputDataStream< std::vector< Data > >
+	{
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedInputDataStream( FILE *fp ) : _fp(fp) {}
+		void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+		bool read( std::vector< Data > &d )
+		{
+			unsigned int pSize;
+			if( fread( &pSize , sizeof(unsigned int) , 1 , _fp )==1 )
+			{
+				d.resize( pSize );
+				if( fread( &d[0] , sizeof(Data) , pSize , _fp )==pSize ) return true;
+				MK_THROW( "Failed to read polygon from file" );
+				return true;
+			}
+			else return false;
+		}
 
-template< typename Factory >
-struct ASCIIOutputDataStream : public OutputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+	protected:
+		FILE *_fp;
+	};
 
-	ASCIIOutputDataStream( const char* fileName , const Factory &factory );
-	~ASCIIOutputDataStream( void );
+	template< typename Data >
+	struct FileBackedOutputDataStream< std::vector< Data > > : public OutputDataStream< std::vector< Data > >
+	{
+		// It is assumed that the file pointer was open for binary writing
+		FileBackedOutputDataStream( FILE *fp ) : _fp(fp) {}
+		size_t write( const std::vector< Data > &d )
+		{
+			unsigned int pSize = (unsigned int)d.size();
+			fwrite( &pSize , sizeof(unsigned int) , 1 , _fp );
+			fwrite( &d[0] , sizeof(Data) , pSize , _fp );
+			return _sz++;
+		}
+		size_t size( void ) const { return _sz; }
 
-protected:
-	const Factory _factory;
-	FILE *_fp;
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+	};
 
-	void base_write( const Data &d );
-};
+	////////////////////////////////////////////////////////
+	// File-backed stream with data desribed by a factory //
+	////////////////////////////////////////////////////////
+	template< typename Factory >
+	struct FileBackedInputFactoryTypeStream : public InputDataStream< typename Factory::VertexType >
+	{
+		using Data = typename Factory::VertexType;
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedInputFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
+		~FileBackedInputFactoryTypeStream( void ){ DeletePointer( _buffer ); }
+		void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+		bool read( Data &d )
+		{
+			if( fread( _buffer , sizeof(unsigned char) , _bufferSize , _fp )==_bufferSize )
+			{
+				_factory.fromBuffer( _buffer , d );
+				return true;
+			}
+			else return false;
+			return _sz++;
+		}
 
-template< typename Factory >
-struct BinaryInputDataStream : public InputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+		const Factory _factory;
+		Pointer( char ) _buffer;
+		const size_t _bufferSize;
+	};
 
-	BinaryInputDataStream( const char* filename , const Factory &factory );
-	~BinaryInputDataStream( void ){ fclose( _fp ) , _fp=NULL; }
-	void reset( void );
+	template< typename Factory >
+	struct FileBackedInputIndexedFactoryTypeStream : public InputIndexedDataStream< typename Factory::VertexType >
+	{
+		using Data = typename Factory::VertexType;
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedInputIndexedFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
+		~FileBackedInputIndexedFactoryTypeStream( void ){ DeletePointer( _buffer ); }
+		void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+		bool read( size_t &idx , Data &d )
+		{
+			if( fread( &idx , sizeof(size_t) , 1 , _fp )!=1 ) return false;
+			if( fread( _buffer , sizeof(unsigned char) , _bufferSize , _fp )==_bufferSize )
+			{
+				_factory.fromBuffer( _buffer , d );
+				return true;
+			}
+			else return false;
+			return _sz++;
+		}
 
-protected:
-	const Factory _factory;
-	FILE* _fp;
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+		const Factory _factory;
+		Pointer( char ) _buffer;
+		const size_t _bufferSize;
+	};
 
-	bool base_read( Data &d );
-};
+	template< typename Factory >
+	struct FileBackedOutputFactoryTypeStream : public OutputDataStream< typename Factory::VertexType >
+	{
+		using Data = typename Factory::VertexType;
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedOutputFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
+		~FileBackedOutputFactoryTypeStream( void ){ DeletePointer( _buffer ); }
+		size_t write( const Data &d )
+		{
+			_factory.toBuffer( d , _buffer );
+			fwrite( _buffer , sizeof(unsigned char) , _bufferSize , _fp );
+			return _sz++;
+		}
+		size_t size( void ) const { return _sz; }
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+		const Factory _factory;
+		Pointer( char ) _buffer;
+		const size_t _bufferSize;
+	};
 
-template< typename Factory >
-struct BinaryOutputDataStream : public OutputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+	template< typename Factory >
+	struct FileBackedOutputIndexedFactoryTypeStream : public OutputIndexedDataStream< typename Factory::VertexType >
+	{
+		using Data = typename Factory::VertexType;
+		// It is assumed that the file pointer was open for binary reading
+		FileBackedOutputIndexedFactoryTypeStream( FILE *fp , const Factory &factory ) : _fp(fp) , _factory(factory) , _buffer( NewPointer< char >( _factory.bufferSize() ) ) , _bufferSize( _factory.bufferSize() ) {}
+		~FileBackedOutputIndexedFactoryTypeStream( void ){ DeletePointer( _buffer ); }
+		size_t write( const size_t &idx , const Data &d )
+		{
+			fwrite( &idx , sizeof(size_t) , 1 , _fp );
+			_factory.toBuffer( d , _buffer );
+			fwrite( _buffer , sizeof(unsigned char) , _bufferSize , _fp );
+			return _sz++;
+		}
+		size_t size( void ) const { return _sz; }
+	protected:
+		size_t _sz = 0;
+		FILE *_fp;
+		const Factory _factory;
+		Pointer( char ) _buffer;
+		const size_t _bufferSize;
+	};
 
-	BinaryOutputDataStream( const char* filename , const Factory &factory );
-	~BinaryOutputDataStream( void ){ fclose( _fp ) , _fp=NULL; }
-	void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+	///////////////////////////////////////////////////////////////////////////////////
+	// File-backed data streams, with functionality for reading/writing from/to disk //
+	///////////////////////////////////////////////////////////////////////////////////
 
-protected:
-	const Factory _factory;
-	FILE* _fp;
+	template< typename Factory >
+	struct ASCIIInputDataStream : public InputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
 
-	void base_write( const Data &d );
-};
+		ASCIIInputDataStream( const char* fileName , const Factory &factory );
+		~ASCIIInputDataStream( void );
+		void reset( void );
+		bool read( Data &d );
 
-////////////////////////////////////////////
-// File-backed PLY-described data streams //
-////////////////////////////////////////////
+	protected:
+		const Factory _factory;
+		FILE *_fp;
+	};
 
-template< typename Factory >
-struct PLYInputDataStream : public InputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+	template< typename Factory >
+	struct ASCIIOutputDataStream : public OutputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
 
-	PLYInputDataStream( const char* fileName , const Factory &factory );
-	PLYInputDataStream( const char* fileName , const Factory &factory , size_t &count );
-	~PLYInputDataStream( void );
-	void reset( void );
+		ASCIIOutputDataStream( const char* fileName , const Factory &factory );
+		~ASCIIOutputDataStream( void );
+		size_t write( const Data &d );
+		size_t size( void ) const { return _sz; }
 
-protected:
-	const Factory _factory;
-	char* _fileName;
-	PlyFile *_ply;
-	std::vector< std::string > _elist;
-	Pointer( char ) _buffer;
+	protected:
+		size_t _sz = 0;
+		const Factory _factory;
+		FILE *_fp;
+	};
 
-	size_t _pCount , _pIdx;
-	void _free( void );
-	bool base_read( Data &d );
-};
+	template< typename Factory >
+	struct BinaryInputDataStream : public InputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
 
-template< typename Factory >
-struct PLYOutputDataStream : public OutputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Data;
+		BinaryInputDataStream( const char* filename , const Factory &factory );
+		~BinaryInputDataStream( void ){ fclose( _fp ) , _fp=NULL; }
+		void reset( void );
+		bool read( Data &d );
 
-	PLYOutputDataStream( const char* fileName , const Factory &factory , size_t count , int fileType=PLY_BINARY_NATIVE );
-	~PLYOutputDataStream( void );
+	protected:
+		const Factory _factory;
+		FILE* _fp;
+	};
 
-protected:
-	const Factory _factory;
-	PlyFile *_ply;
-	size_t _pCount , _pIdx;
-	Pointer( char ) _buffer;
+	template< typename Factory >
+	struct BinaryOutputDataStream : public OutputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
 
-	void base_write( const Data &d );
-};
+		BinaryOutputDataStream( const char* filename , const Factory &factory );
+		~BinaryOutputDataStream( void ){ fclose( _fp ) , _fp=NULL; }
+		void reset( void ){ fseek( _fp , 0 , SEEK_SET ); }
+		size_t write( const Data &d );
+		size_t size( void ) const { return _sz; }
+
+	protected:
+		size_t _sz = 0;
+		const Factory _factory;
+		FILE* _fp;
+	};
+
+	////////////////////////////////////////////
+	// File-backed PLY-described data streams //
+	////////////////////////////////////////////
+
+	template< typename Factory >
+	struct PLYInputDataStream : public InputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
+
+		PLYInputDataStream( const char* fileName , const Factory &factory );
+		PLYInputDataStream( const char* fileName , const Factory &factory , size_t &count );
+		~PLYInputDataStream( void );
+		void reset( void );
+		bool read( Data &d );
+
+	protected:
+		const Factory _factory;
+		char* _fileName;
+		PlyFile *_ply;
+		std::vector< std::string > _elist;
+		Pointer( char ) _buffer;
+
+		size_t _pCount , _pIdx;
+		void _free( void );
+	};
+
+	template< typename Factory >
+	struct PLYOutputDataStream : public OutputDataStream< typename Factory::VertexType >
+	{
+		typedef typename Factory::VertexType Data;
+
+		PLYOutputDataStream( const char* fileName , const Factory &factory , size_t count , int fileType=PLY_BINARY_NATIVE );
+		~PLYOutputDataStream( void );
+		size_t write( const Data &d );
+		size_t size( void ) const { return _pIdx; }
+
+	protected:
+		const Factory _factory;
+		PlyFile *_ply;
+		size_t _pCount , _pIdx;
+		Pointer( char ) _buffer;
+	};
 
 #include "DataStream.imp.inl"
+}
 
 #endif // DATA_STREAM_IMPLEMENTATION_INCLUDED

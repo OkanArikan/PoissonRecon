@@ -26,8 +26,6 @@ ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF S
 DAMAGE.
 */
 
-#include "MarchingCubes.h"
-
 // Level-set extraction data
 namespace LevelSetExtraction
 {
@@ -69,6 +67,13 @@ namespace LevelSetExtraction
 
 		friend std::ostream &operator << ( std::ostream &os , const Key &key ){ return os << key.to_string(); }
 
+		friend Key SetAtomic( volatile Key & value , Key newValue )
+		{
+			Key oldValue;
+			for( unsigned int d=0 ; d<Dim ; d++ ) oldValue.idx[d] = PoissonRecon::SetAtomic( value.idx[d] , newValue.idx[d] );
+			return oldValue;
+		}
+
 #ifdef SHOW_WARNINGS
 #pragma message( "[WARNING] Could we hash better?" )
 #endif // SHOW_WARNINGS
@@ -96,6 +101,14 @@ namespace LevelSetExtraction
 		IsoEdge( Key< Dim > v1 , Key< Dim > v2 ){ vertices[0] = v1 , vertices[1] = v2; }
 		Key< Dim > &operator[]( int idx ){ return vertices[idx]; }
 		const Key< Dim > &operator[]( int idx ) const { return vertices[idx]; }
+
+		friend IsoEdge SetAtomic( volatile IsoEdge & value , IsoEdge newValue )
+		{
+			IsoEdge oldValue;
+			oldValue.vertices[0] = SetAtomic( value.vertices[0] , newValue.vertices[0] );
+			oldValue.vertices[1] = SetAtomic( value.vertices[1] , newValue.vertices[1] );
+			return oldValue;
+		}
 	};
 
 	/////////////////////
@@ -235,7 +248,8 @@ namespace LevelSetExtraction
 		template< unsigned int CellDim >
 		void _zeroOut( size_t sz )
 		{
-			memset( maps[CellDim] , 0 , sizeof(node_index_type) * sz * HyperCube::Cube< Dim >::template ElementNum< CellDim >() );
+			if( sz && maps[CellDim] ) memset( maps[CellDim] , 0 , sizeof(node_index_type) * sz * HyperCube::Cube< Dim >::template ElementNum< CellDim >() );
+			else if( sz ) MK_THROW( "Traying to zero out null pointer" );
 
 			if constexpr( CellDim==MaxCellDim ) return;
 			else _zeroOut< CellDim+1 >( sz );
@@ -284,7 +298,7 @@ namespace LevelSetExtraction
 
 		void read( BinaryStream &stream )
 		{
-			if( !stream.read( _size ) ) ERROR_OUT( "Failed to read node count" );
+			if( !stream.read( _size ) ) MK_THROW( "Failed to read node count" );
 			resize( _size );
 			if( _size ) _read<0>( stream );
 		}
@@ -330,8 +344,8 @@ namespace LevelSetExtraction
 		template< unsigned int CellDim >
 		void _read( BinaryStream &stream )
 		{
-			if( !stream.read( counts[CellDim] ) ) ERROR_OUT( "Failed to read count at dimension: " , CellDim );
-			if( !stream.read( std::get< CellDim >( tables ) , _size ) ) ERROR_OUT( "Failed to read table at dimension: " , CellDim );
+			if( !stream.read( counts[CellDim] ) ) MK_THROW( "Failed to read count at dimension: " , CellDim );
+			if( !stream.read( std::get< CellDim >( tables ) , _size ) ) MK_THROW( "Failed to read table at dimension: " , CellDim );
 
 			if constexpr( CellDim==MaxCellDim ) return;
 			else _read< CellDim+1 >( stream );
@@ -372,7 +386,7 @@ namespace LevelSetExtraction
 
 		void read( BinaryStream &stream )
 		{
-			if( !stream.read( nodeOffset ) ) ERROR_OUT( "Failed to read node ofset" );
+			if( !stream.read( nodeOffset ) ) MK_THROW( "Failed to read node ofset" );
 			CellIndexData< Dim , MaxCellDim >::read( stream );
 		}
 
@@ -393,7 +407,7 @@ namespace LevelSetExtraction
 			for( size_t i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( depth );
 
 			// Try and get at the nodes outside of the slab through the neighbor key
-			ThreadPool::Parallel_for( sNodes.begin(depth) , sNodes.end(depth) , [&]( unsigned int thread , size_t i )
+			ThreadPool::ParallelFor( sNodes.begin(depth) , sNodes.end(depth) , [&]( unsigned int thread , size_t i )
 				{
 					ConstOneRingNeighborKey& neighborKey = neighborKeys[ thread ];
 					const TreeNode *node = sNodes.treeNodes[i];
@@ -403,7 +417,7 @@ namespace LevelSetExtraction
 			);
 
 			_setCounts<0>( _scratch.maps );
-			ThreadPool::Parallel_for( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
+			ThreadPool::ParallelFor( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
 		}
 
 		// Maps from tree nodes (and their associated indices) to the associated indices for the cell indices
@@ -502,7 +516,7 @@ namespace LevelSetExtraction
 
 		void read( BinaryStream &stream )
 		{
-			if( !stream.read( nodeOffset ) ) ERROR_OUT( "Failed to read node ofset" );
+			if( !stream.read( nodeOffset ) ) MK_THROW( "Failed to read node ofset" );
 			CellIndexData< _Dim , _Dim >::read( stream );
 		}
 
@@ -523,7 +537,7 @@ namespace LevelSetExtraction
 			for( size_t i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( depth );
 
 			// Try and get at the nodes outside of the slab through the neighbor key
-			ThreadPool::Parallel_for( sNodes.begin( depth , slice-1 ) , sNodes.end( depth , slice ) , [&]( unsigned int thread , size_t i )
+			ThreadPool::ParallelFor( sNodes.begin( depth , slice-1 ) , sNodes.end( depth , slice ) , [&]( unsigned int thread , size_t i )
 				{
 					ConstOneRingNeighborKey &neighborKey = neighborKeys[ thread ];
 					const TreeNode *node = sNodes.treeNodes[i];
@@ -533,7 +547,7 @@ namespace LevelSetExtraction
 			);
 
 			_setCounts<0>( _scratch.maps );
-			ThreadPool::Parallel_for( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
+			ThreadPool::ParallelFor( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
 		}
 
 		// Maps from tree nodes (and their associated indices) to the associated indices for the cell indices
@@ -636,7 +650,7 @@ namespace LevelSetExtraction
 
 		void read( BinaryStream &stream )
 		{
-			if( !stream.read( nodeOffset ) ) ERROR_OUT( "Failed to read node ofset" );
+			if( !stream.read( nodeOffset ) ) MK_THROW( "Failed to read node ofset" );
 			CellIndexData< _Dim , _Dim >::read( stream );
 		}
 
@@ -657,7 +671,7 @@ namespace LevelSetExtraction
 			for( size_t i=0 ; i<neighborKeys.size() ; i++ ) neighborKeys[i].set( depth );
 
 			// Try and get at the nodes outside of the slab through the neighbor key
-			ThreadPool::Parallel_for( sNodes.begin( depth , slab ) , sNodes.end( depth , slab ) , [&]( unsigned int thread , size_t i )
+			ThreadPool::ParallelFor( sNodes.begin( depth , slab ) , sNodes.end( depth , slab ) , [&]( unsigned int thread , size_t i )
 				{
 					ConstOneRingNeighborKey &neighborKey = neighborKeys[ thread ];
 					const TreeNode *node = sNodes.treeNodes[i];
@@ -667,7 +681,7 @@ namespace LevelSetExtraction
 			);
 
 			_setCounts<0>( _scratch.maps );
-			ThreadPool::Parallel_for( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
+			ThreadPool::ParallelFor( 0 , size() , [&]( unsigned int , size_t i ){ _setTables<0>( (unsigned int)i , _scratch.maps ); } );
 		}
 
 		// Maps from tree nodes (and their associated indices) to the associated indices for the cell indices
@@ -768,7 +782,7 @@ namespace LevelSetExtraction
 		Key< Dim > operator()( int depth , int offset , Key< Dim-1 > key ) const
 		{
 			Key< Dim > pKey;
-			if( depth>_maxDepth ) ERROR_OUT( "Depth cannot exceed max depth: " , depth , " <= " , _maxDepth );
+			if( depth>_maxDepth ) MK_THROW( "Depth cannot exceed max depth: " , depth , " <= " , _maxDepth );
 			for( unsigned int d=0 ; d<Dim-1 ; d++ ) pKey[d] = key[d];
 			pKey[Dim-1] = cornerIndex( depth , offset );
 			return pKey;

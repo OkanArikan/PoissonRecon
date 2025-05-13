@@ -44,15 +44,15 @@ DAMAGE.
 #include "Ply.h"
 #include "VertexFactory.h"
 
-cmdLineParameter< char* >
+using namespace PoissonRecon;
+
+CmdLineParameter< char* >
 	In( "in" ) ,
 	Out( "out" );
-cmdLineParameter< int >
-	Smooth( "smooth" , 5 );
-cmdLineParameter< float >
+CmdLineParameter< float >
 	Trim( "trim" ) ,
 	IslandAreaRatio( "aRatio" , 0.001f );
-cmdLineReadable
+CmdLineReadable
 	PolygonMesh( "polygonMesh" ) ,
 	Long( "long" ) ,
 	ASCII( "ascii" ) ,
@@ -61,9 +61,9 @@ cmdLineReadable
 	Verbose( "verbose" );
 
 
-cmdLineReadable* params[] =
+CmdLineReadable* params[] =
 {
-	&In , &Out , &Trim , &PolygonMesh , &Smooth , &IslandAreaRatio , &Verbose , &Long , &ASCII , &RemoveIslands , &Debug ,
+	&In , &Out , &Trim , &PolygonMesh , &IslandAreaRatio , &Verbose , &Long , &ASCII , &RemoveIslands , &Debug ,
 	NULL
 };
 
@@ -73,7 +73,6 @@ void ShowUsage( char* ex )
 	printf( "\t --%s <input polygon mesh>\n" , In.name );
 	printf( "\t --%s <trimming value>\n" , Trim.name );
 	printf( "\t[--%s <ouput polygon mesh>]\n" , Out.name );
-	printf( "\t[--%s <smoothing iterations>=%d]\n" , Smooth.name , Smooth.value );
 	printf( "\t[--%s <relative area of islands>=%f]\n" , IslandAreaRatio.name , IslandAreaRatio.value );
 	printf( "\t[--%s]\n" , RemoveIslands.name );
 	printf( "\t[--%s]\n" , Debug.name );
@@ -102,7 +101,7 @@ struct ComponentGraph
 				nodes.pop_back();
 			};
 
-			if( !neighbors.size() ) ERROR_OUT( "No neighbors" );
+			if( !neighbors.size() ) MK_THROW( "No neighbors" );
 
 			// Remove the node from the neighbors of the neighbors
 			for( unsigned int i=0 ; i<neighbors.size() ; i++ ) for( int j=(int)neighbors[i]->neighbors.size()-1 ; j>=0 ; j-- ) if( neighbors[i]->neighbors[j]==this )
@@ -149,10 +148,10 @@ struct ComponentGraph
 
 		for( auto iter=flags.begin() ; iter!=flags.end() ; iter++ ) for( unsigned int j=0 ; j<iter->first->neighbors.size() ; j++ )
 		{
-			if( iter->second==flags[ iter->first->neighbors[j] ] ) ERROR_OUT( "Not a bipartite graph" );
+			if( iter->second==flags[ iter->first->neighbors[j] ] ) MK_THROW( "Not a bipartite graph" );
 			bool foundSelf = false;
 			for( unsigned int k=0 ; k<iter->first->neighbors[j]->neighbors.size() ; k++ ) if( iter->first->neighbors[j]->neighbors[k]==iter->first ) foundSelf = true;
-			if( !foundSelf ) ERROR_OUT( "Asymmetric graph" );
+			if( !foundSelf ) MK_THROW( "Asymmetric graph" );
 		}
 	}
 
@@ -171,7 +170,7 @@ protected:
 };
 
 template< typename Real , unsigned int Dim , typename ... AuxData >
-using ValuedPointData = VectorTypeUnion< Real , Point< Real , Dim > , Real , AuxData ... >;
+using ValuedPointData = DirectSum< Real , Point< Real , Dim > , Real , AuxData ... >;
 
 template< typename Index >
 size_t BoostHash( Index i1 , Index i2 )
@@ -210,25 +209,6 @@ ValuedPointData< Real , Dim , AuxData ... > InterpolateVertices( const ValuedPoi
 	if( v1.template get<1>()==v2.template get<1>() ) return (v1+v2)/Real(2.);
 	Real dx = ( v1.template get<1>()-value ) / ( v1.template get<1>()-v2.template get<1>() );
 	return v1 * (Real)(1.-dx) + v2*dx;
-}
-
-template< typename Real , unsigned int Dim , typename Index , typename ... AuxData >
-void SmoothValues( std::vector< ValuedPointData< Real , Dim , AuxData ... > >& vertices , const std::vector< std::vector< Index > >& polygons )
-{
-	std::vector< int > count( vertices.size() );
-	std::vector< Real > sums( vertices.size() , 0 );
-	for( size_t i=0 ; i<polygons.size() ; i++ )
-	{
-		int sz = int(polygons[i].size());
-		for( int j=0 ; j<sz ; j++ )
-		{
-			int j1 = j , j2 = (j+1)%sz;
-			Index v1 = polygons[i][j1] , v2 = polygons[i][j2];
-			count[v1]++ , count[v2]++;
-			sums[v1] += vertices[v2].template get<1>() , sums[v2] += vertices[v1].template get<1>();
-		}
-	}
-	for( size_t i=0 ; i<vertices.size() ; i++ ) vertices[i].template get<1>() = ( sums[i] + vertices[i].template get<1>() ) / ( count[i] + 1 );
 }
 
 template< typename Real , unsigned int Dim , typename Index , typename ... AuxData >
@@ -429,7 +409,6 @@ int Execute( AuxDataFactories ... auxDataFactories )
 	std::vector< std::string > comments;
 	PLY::ReadPolygons< Factory , Index >( In.value , factory , vertices , polygons , ft , comments );
 
-	for( int i=0 ; i<Smooth.value ; i++ ) SmoothValues< Real , Dim , Index >( vertices , polygons );
 	min = max = vertices[0].template get<1>();
 	for( size_t i=0 ; i<vertices.size() ; i++ ) min = std::min< Real >( min , vertices[i].template get<1>() ) , max = std::max< Real >( max , vertices[i].template get<1>() );
 
@@ -585,7 +564,7 @@ int Execute( AuxDataFactories ... auxDataFactories )
 }
 int main( int argc , char* argv[] )
 {
-	cmdLineParse( argc-1 , &argv[1] , params );
+	CmdLineParse( argc-1 , &argv[1] , params );
 
 	if( !In.set || !Trim.set )
 	{
@@ -598,9 +577,15 @@ int main( int argc , char* argv[] )
 	Factory factory;
 	bool *readFlags = new bool[ factory.plyReadNum() ];
 	std::vector< PlyProperty > unprocessedProperties;
-	PLY::ReadVertexHeader( In.value , factory , readFlags , unprocessedProperties );
-	if( !factory.plyValidReadProperties<0>( readFlags ) ) ERROR_OUT( "Ply file does not contain positions" );
-	if( !factory.plyValidReadProperties<1>( readFlags ) ) ERROR_OUT( "Ply file does not contain values" );
+	size_t vNum;
+	PLY::ReadVertexHeader( In.value , factory , readFlags , unprocessedProperties , vNum );
+	if( vNum>std::numeric_limits< int >::max() )
+	{
+		if( !Long.set ) MK_WARN( "Number of vertices not supported by 32-bit indexing. Switching to 64-bit indexing" );
+		Long.set = true;
+	}
+	if( !factory.template plyValidReadProperties<0>( readFlags ) ) MK_THROW( "Ply file does not contain positions" );
+	if( !factory.template plyValidReadProperties<1>( readFlags ) ) MK_THROW( "Ply file does not contain values" );
 	delete[] readFlags;
 
 	if( Long.set ) return Execute< Real , Dim , long long >( VertexFactory::DynamicFactory< Real >( unprocessedProperties ) );

@@ -1,4 +1,4 @@
-<center><h2>Adaptive Multigrid Solvers (Version 15.03)</h2></center>
+<center><h2>Adaptive Multigrid Solvers (Version 18.73)</h2></center>
 <center>
 <a href="#LINKS">links</a>
 <a href="#COMPILATION">compilation</a>
@@ -29,10 +29,43 @@ This code-base was born from the Poisson Surface Reconstruction code. It has evo
 <a href="https://www.cs.jhu.edu/~misha/MyPapers/CGF23.pdf">[Kazhdan and Hoppe, 2023]</a>
 <br>
 <b>Executables: </b>
-<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.03/AdaptiveSolvers.x64.zip">Win64</a><br>
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.73/AdaptiveSolvers.x64.zip">Win64</a><br>
 <b>Source Code:</b>
-<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.03/AdaptiveSolvers.zip">ZIP</a> <a href="https://github.com/mkazhdan/PoissonRecon">GitHub</a><br>
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.73/AdaptiveSolvers.zip">ZIP</a> <a href="https://github.com/mkazhdan/PoissonRecon">GitHub</a><br>
 <b>Older Versions:</b>
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.72/">V18.72</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.71/">V18.71</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.70/">V18.70</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.60/">V18.60</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.55/">V18.55</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.50/">V18.50</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.42/">V18.42</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.41/">V18.41</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.40/">V18.40</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.35/">V18.35</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.31/">V18.31</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.30/">V18.30</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.20/">V18.20</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.10/">V18.10</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.05/">V18.05</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.04/">V18.04</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.03/">V18.03</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.02/">V18.02</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.01/">V18.01</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.00/">V18.00</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version17.00/">V17.00</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.10/">V16.10</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.09/">V16.09</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.08/">V16.08</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.07/">V16.07</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.06/">V16.06</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.05/">V16.05</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.04/">V16.04</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.03/">V16.03</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.02/">V16.02</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.01/">V16.01</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.10/">V15.10</a>,
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.03/">V15.03</a>,
 <a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.02/">V15.02</a>,
 <a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.01/">V15.01</a>,
 <a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.00/">V15.00</a>,
@@ -139,9 +172,24 @@ The file is written in <a href="https://www.cc.gatech.edu/projects/large_models/
 
 </dd><dt>[<b>--grid</b> &lt;<i>output grid</i>&gt;]
 </dt><dd> This string is the name of the file to which the sampled implicit function will be written.
-The file is written out in binary, with the first 4 bytes corresponding to the (integer) sampling resolution, 2^<i>d</i>,
-and the next 4 x 2^<i>d</i> x 2^<i>d</i> x ... bytes corresponding to the (single precision) floating point values
+The file consistes of seven header lines in ASCII describing the contents, following by the grid values in binary.<BR>
+<UL>
+<LI>The header looks like:<PRE><CODE>G3
+1 FLOAT
+&lt;RES_X&gt; &lt;RES_Y&gt; &lt;RES_Z&gt;
+&lt;M_00&gt; &lt;M_01&gt; &lt;M_02&gt; &lt;M_03&gt;
+&lt;M_10&gt; &lt;M_11&gt; &lt;M_12&gt; &lt;M_13&gt;
+&lt;M_20&gt; &lt;M_21&gt; &lt;M_22&gt; &lt;M_23&gt;
+&lt;M_30&gt; &lt;M_31&gt; &lt;M_22&gt; &lt;M_33&gt;
+</CODE></PRE>
+The first two lines describe the contents of the file -- a 3D grid with a single floating point value per cell.<br>
+The next line gives the resolution of the grid in <code>x</code>-, <code>y</code>-, and <code>z</code>-directions.<br>
+The following four lines give the 4x4 coefficients of the homogenous transformation <CODE>&lt;M&gt;</CODE> taking grid-space coordinates to world-coordinates.
+<LI>
+The next 4 x <code>&lt;RES_X&gt;</code> x <code>&lt;RES_Y&gt;</code> x <code>&lt;RES_Z&gt;</code> bytes correspond to the (single precision) floating point values
 of the implicit function.
+
+</UL>
 
 </dd><dt>[<b>--degree</b> &lt;<i>B-spline degree</i>&gt;]
 </dt><dd> This integer specifies the degree of the B-spline that is to be used to define the finite elements system.
@@ -193,9 +241,6 @@ The default value for this parameter is 8.
 </dd><dt>[<b>--density</b>]
 </dt><dd> Enabling this flag tells the reconstructor to output the estimated depth values of the iso-surface vertices.
 
-</dd><dt>[<b>--normals</b>]
-</dt><dd> Enabling this flag tells the reconstructor to output vertex normals, computed from the gradients of the implicit function.
-
 </dd><dt>[<b>--colors</b>]
 </dt><dd> If the input points are in ASCII/binary format and contain color values, this flag lets the reconstruction code know that (1) each sample is represented by nine floating point values instead of the expected six, and that (2) color values should be output with the vertices of the reconstructed surface. (For input samples in the .ply format, the presence of color information, as well as any other additional per-sample data, is automatically determined from the file header.)
 
@@ -204,13 +249,8 @@ The default value for this parameter is 8.
 of finer data over lower data in performing the extrapolation.<BR>
 The default value for this parameter is 32.
 
-</dd><dt>[<b>--confidence</b> &lt;<i>normal confidence exponent</i>&gt;]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to adjust its weight. (A point's confidence is defined by the magnitude of its normal.)<BR>
-The default value for this parameter is 0.
-
-</dd><dt>[<b>--confidenceBias</b> &lt;<i>normal confidence bias exponent</i>&gt;]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to bias the resolution at which the sample contributes to the linear system. (Points with lower confidence are biased to contribute at coarser resolutions.)<BR>
-The default value for this parameter is 0.
+</dd><dt>[<b>--confidence</b>]
+</dt><dd> Enabling this flag specifies that the normal lengths should be used as weights when considering the contribution of a sample.
 
 </dd><dt>[<b>--primalGrid</b>]
 </dt><dd> Enabling this flag when outputing to a grid file has the reconstructor sample the implicit function at the corners of the grid, rather than the centers of the cells.
@@ -270,8 +310,8 @@ vertices with the x-, y-, and z-coordinates of the positions encoded by the prop
 The specified (networked) path is assumed to accessible to the server and all clients.
 </dd>
 
-<dt><b>--out</b> &lt;<i>output polygon mesh</i>&gt;</dt>
-<dd> This string is the name of the file to which the polygon mesh will be written.<BR>
+<dt><b>--out</b> &lt;<i>output polygon mesh (header)</i>&gt;</dt>
+<dd> This string is the name of the file to which the polygon mesh will be written (or the header, in the case <b>--keepSeparate</b> is specified).<BR>
 The file is written in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.
 </dd>
 
@@ -348,16 +388,12 @@ The results of the original (unscreened) Poisson Reconstruction can be obtained 
 of finer data over lower data in performing the extrapolation.<BR>
 </dd>
 
-<dt>[<b>--confidence</b> &lt;<i>normal confidence exponent</i>&gt;=0]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to adjust its weight. (A point's confidence is defined by the magnitude of its normal.)<BR>
-</dd>
-
-<dt>[<b>--confidenceBias</b> &lt;<i>normal confidence bias exponent</i>&gt;=0]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to bias the resolution at which the sample contributes to the linear system. (Points with lower confidence are biased to contribute at coarser resolutions.)<BR>
-</dd>
-
 <dt>[<b>--verbose</b> &lt;<i>verbosity</i>&gt;=0]
 </dt><dd> This integer value specifies the level of verbosity of output provided by the client and server, with "0" corresponding to no output and "4" giving the most.<BR>
+</dd>
+
+<dt>[<b>--confidence</b>]
+</dt><dd> Enabling this flag specifies that the normal lengths should be used as weights when considering the contribution of a sample.
 </dd>
 
 <dt>[<b>--linearFit</b>]
@@ -379,6 +415,10 @@ The default value for this parameter is 0.
 
 </dd><dt>[<b>--noFuse</b>]
 </dt><dd> Enabling this flag keeps the server from fusing shared vertices across slabs. (The reconstructions from the different clients will still be merged into a single .ply file.)
+</dd>
+
+</dd><dt>[<b>--keepSeparate</b>]
+</dt><dd> Enabling this flag keeps the reconstructions computed by the clients separate. In this case, the value of  <b>--out</b> is treated as a header and the the geometries are output to files <code>&lt;output header&gt;.&lt;client index&gt;.ply</code>.
 </dd>
 
 </DETAILS>
@@ -460,8 +500,21 @@ The file is written in <a href="https://www.cc.gatech.edu/projects/large_models/
 
 </dd><dt>[<b>--grid</b> &lt;<i>output grid</i>&gt;]
 </dt><dd> This string is the name of the file to which the sampled implicit function will be written.
-The file is wrtten out in binary, with the first 4 bytes corresponding to the (integer) sampling resolution, 2^<i>d</i>,
-and the next 4 x 2^<i>d</i> x 2^<i>d</i> x ... bytes corresponding to the (single precision) floating point values
+The file consistes of seven header lines in ASCII describing the contents, following by the grid values in binary.<BR>
+<UL>
+<LI>The header looks like:<PRE><CODE>G3
+1 FLOAT
+&lt;RES_X&gt; &lt;RES_Y&gt; &lt;RES_Z&gt;
+&lt;M_00&gt; &lt;M_01&gt; &lt;M_02&gt; &lt;M_03&gt;
+&lt;M_10&gt; &lt;M_11&gt; &lt;M_12&gt; &lt;M_13&gt;
+&lt;M_20&gt; &lt;M_21&gt; &lt;M_22&gt; &lt;M_23&gt;
+&lt;M_30&gt; &lt;M_31&gt; &lt;M_22&gt; &lt;M_33&gt;
+</CODE></PRE>
+The first two lines describe the contents of the file -- a 3D grid with a single floating point value per cell.<br>
+The next line gives the resolution of the grid in <code>x</code>-, <code>y</code>-, and <code>z</code>-directions.<br>
+The following four lines give the 4x4 coefficients of the homogenous transformation <CODE>&lt;M&gt;</CODE> taking grid-space coordinates to world-coordinates.
+<LI>
+The next 4 x <code>&lt;RES_X&gt;</code> x <code>&lt;RES_Y&gt;</code> x <code>&lt;RES_Z&gt;</code> bytes correspond to the (single precision) floating point values
 of the implicit function.
 
 </dd><dt>[<b>--degree</b> &lt;<i>B-spline degree</i>&gt;]
@@ -514,9 +567,6 @@ The default value for this parameter is 8.
 </dd><dt>[<b>--density</b>]
 </dt><dd> Enabling this flag tells the reconstructor to output the estimated depth values of the iso-surface vertices.
 
-</dd><dt>[<b>--normals</b>]
-</dt><dd> Enabling this flag tells the reconstructor to output vertex normals, computed from the gradients of the implicit function.
-
 </dd><dt>[<b>--colors</b>]
 </dt><dd> If the input points are in ASCII/binary format and contain color values, this flag lets the reconstruction code know that (1) each sample is represented by nine floating point values instead of the expected six, and that (2) color values should be output with the vertices of the reconstructed surface. (For input samples in the .ply format, the presence of color information, as well as any other additional per-sample data, is automatically determined from the file header.)
 
@@ -525,13 +575,8 @@ The default value for this parameter is 8.
 of finer data over lower data in performing the extrapolation.<BR>
 The default value for this parameter is 32.
 
-</dd><dt>[<b>--confidence</b> &lt;<i>normal confidence exponent</i>&gt;]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to adjust its weight. (A point's confidence is defined by the magnitude of its normal.)<BR>
-The default value for this parameter is 0.
-
-</dd><dt>[<b>--confidenceBias</b> &lt;<i>normal confidence bias exponent</i>&gt;]
-</dt><dd> This floating point value specifies the exponent to be applied to a point's confidence to bias the resolution at which the sample contributes to the linear system. (Points with lower confidence are biased to contribute at coarser resolutions.)<BR>
-The default value for this parameter is 0.
+</dd><dt>[<b>--confidence</b>]
+</dt><dd> Enabling this flag specifies that the normal lengths should be used as weights when considering the contribution of a sample.
 
 </dd><dt>[<b>--primalGrid</b>]
 </dt><dd> Enabling this flag when outputing to a grid file has the reconstructor sample the implicit function at the corners of the grid, rather than the centers of the cells.
@@ -593,10 +638,23 @@ The default value is 2.<br></dd>
 <dd> This string is the name of the file to which the the octree and function coefficients are to be written.</dd>
 
 <dt>[<b>--grid</b> &lt;<i>output grid</i>&gt;]</dt>
-<dd> This string is the name of the file to which the sampled implicit function will be written.
-The file is wrtten out in binary, with the first 4 bytes corresponding to the (integer) sampling resolution, 2^<i>d</i>,
-and the next 4 x 2^<i>d</i> x 2^<i>d</i> x ... bytes corresponding to the (single precision) floating point values
-of the implicit function.</dd>
+</dt><dd> This string is the name of the file to which the sampled implicit function will be written.
+The file consistes of seven header lines in ASCII describing the contents, following by the grid values in binary.<BR>
+<UL>
+<LI>The header looks like:<PRE><CODE>G3
+1 FLOAT
+&lt;RES_X&gt; &lt;RES_Y&gt; &lt;RES_Z&gt;
+&lt;M_00&gt; &lt;M_01&gt; &lt;M_02&gt; &lt;M_03&gt;
+&lt;M_10&gt; &lt;M_11&gt; &lt;M_12&gt; &lt;M_13&gt;
+&lt;M_20&gt; &lt;M_21&gt; &lt;M_22&gt; &lt;M_23&gt;
+&lt;M_30&gt; &lt;M_31&gt; &lt;M_22&gt; &lt;M_33&gt;
+</CODE></PRE>
+The first two lines describe the contents of the file -- a 3D grid with a single floating point value per cell.<br>
+The next line gives the resolution of the grid in <code>x</code>-, <code>y</code>-, and <code>z</code>-directions.<br>
+The following four lines give the 4x4 coefficients of the homogenous transformation <CODE>&lt;M&gt;</CODE> taking grid-space coordinates to world-coordinates.
+<LI>
+The next 4 x <code>&lt;RES_X&gt;</code> x <code>&lt;RES_Y&gt;</code> x <code>&lt;RES_Z&gt;</code> bytes correspond to the (single precision) floating point values
+of the implicit function.
 
 <dt>[<b>--degree</b> &lt;<i>B-spline degree</i>&gt;]</dt>
 <dd> This integer specifies the degree of the B-spline that is to be used to define the finite elements system.
@@ -682,10 +740,6 @@ The file is read in <a href="https://www.cc.gatech.edu/projects/large_models/ply
 </dd><dt>[<b>--out</b> &lt;<i>output triangle mesh</i>&gt;]
 </dt><dd> This string is the name of the file to which the triangle mesh will be written. 
 The file is written in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.
-
-</dd><dt>[<b>--smooth</b> &lt;<i>smoothing iterations</i>&gt;]
-</dt><dd> This integer values the number of umbrella smoothing operations to perform on the signal before trimming.<br>
-The default value is 5.
 
 </dd><dt>[<b>--aRatio</b> &lt;<i>island area ratio</i>&gt;]
 </dt><dd> This floating point value specifies the area ratio that defines a disconnected component as an "island". Connected components whose area, relative to the total area of the mesh, are smaller than this value will be merged into the output surface to close small holes.<br>
@@ -845,9 +899,23 @@ No information about the number of samples should be specified.</dd>
 </dd>
 
 <dt>[<b>--grid</b> &lt;<i>output value grid</i>&gt;]
-</dt><dd> This string is the name of the file to which the sampling of the implicit along a regular grid will be written.<BR>
-The file is written out in binary, with the first 4 bytes corresponding to the (integer) sampling resolution, <i>R</i>,
-and the next 4 x <I>R</I>^<i>D</i> bytes corresponding to the (single precision) floating point values of the implicit function. (Here, <i>D</I> is the dimension.)
+</dt><dd> This string is the name of the file to which the sampled implicit function will be written.
+The file consistes of seven header lines in ASCII describing the contents, following by the grid values in binary.<BR>
+<UL>
+<LI>The header looks like:<PRE><CODE>G3
+1 FLOAT
+&lt;RES_X&gt; &lt;RES_Y&gt; &lt;RES_Z&gt;
+&lt;M_00&gt; &lt;M_01&gt; &lt;M_02&gt; &lt;M_03&gt;
+&lt;M_10&gt; &lt;M_11&gt; &lt;M_12&gt; &lt;M_13&gt;
+&lt;M_20&gt; &lt;M_21&gt; &lt;M_22&gt; &lt;M_23&gt;
+&lt;M_30&gt; &lt;M_31&gt; &lt;M_22&gt; &lt;M_33&gt;
+</CODE></PRE>
+The first two lines describe the contents of the file -- a 3D grid with a single floating point value per cell.<br>
+The next line gives the resolution of the grid in <code>x</code>-, <code>y</code>-, and <code>z</code>-directions.<br>
+The following four lines give the 4x4 coefficients of the homogenous transformation <CODE>&lt;M&gt;</CODE> taking grid-space coordinates to world-coordinates.
+<LI>
+The next 4 x <code>&lt;RES_X&gt;</code> x <code>&lt;RES_Y&gt;</code> x <code>&lt;RES_Z&gt;</code> bytes correspond to the (single precision) floating point values
+of the implicit function.
 
 </dd><dt>[<b>--primalGrid</b>]
 </dt><dd> Enabling this flag when outputing a grid file samples the implicit function at the corners of the grid, rather than the centers of the cells.
@@ -923,6 +991,79 @@ individual components of the visualizer.
 </dl>
 </ul>
 
+<ul>
+<dl>
+<DETAILS>
+<SUMMARY>
+<font size="+1"><b>PointsToDisks</b></font>:
+Converts oriented points to disks.
+</SUMMARY>
+<dt><b>--in</b> &lt;<i>input points</i>&gt;
+</dt><dd> This string is the name of the file from which the point set will be read.<br>
+The file is assumed to be in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.<br>
+
+</dd><dt>[<b>--out</b> &lt;<i>output ply file name</i>&gt;]
+</dt><dd> This string is the name of the file to which the disks should be written.<br>
+The file will be written out in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.<br>
+
+</dd><dt>[<b>--scale &lt;<i>radius scale</i>&gt;</b>]
+</dt><dd> This floating point value specifies the radius of the disks, relative to the width of the bounding cube.<BR>
+The default value for this parameter is <i>0.005</i>
+
+</dd><dt>[<b>--res &lt;<i>angular resolution</i>&gt;</b>]
+</dt><dd> This integer v value specifies thangular resolution of the disk.<br>
+The default value for this parameter is <i>12</i>.
+
+</dd><dt>[<b>--keep &lt;<i>number of points to keep</i>&gt;</b>]
+</dt><dd> This integer value specifies the maximum number of point to transform to disks.<br>
+If the value of this parameter is less than the number of points, the subset of points transformed to disks will be generated by regular sub-sampling.<br>
+If the value of this parameter is not set and the <b>--fraction</b> parameter is not set, then all points will be transformed to disks.
+
+</dd><dt>[<b>--fraction &lt;<i>faction of points to keep</i>&gt;</b>]
+</dt><dd> This floating point value specifies the fraction of points to transform to disks.<br>
+The default value for this parameter is <i>1.0</i>.<br>
+If both the <b>--keep</b> flag and the <b>--fraction</b> flag are set, the <b>--fraction</b> flag will be ignored.
+
+</dd><dt>[<b>--verbose</b>]
+</dt><dd> Enabling this flag provides a description of running state.
+
+</dd>
+</DETAILS>
+</dl>
+</ul>
+
+<ul>
+<dl>
+<DETAILS>
+<SUMMARY>
+<font size="+1"><b>ScaleNormals</b></font>:
+Scales the normal magnitudes using auxiliary confidence attributes encoded with the samples.
+</SUMMARY>
+<dt><b>--in</b> &lt;<i>input points</i>&gt;
+</dt><dd> This string is the name of the file from which the point set will be read.<br>
+The file is assumed to be in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.<br>
+
+</dd><dt><b>--out</b> &lt;<i>output ply file name</i>&gt;
+</dt><dd> This string is the name of the file to which the point set should be written.<br>
+The file will be written out in <a href="https://www.cc.gatech.edu/projects/large_models/ply.html">PLY</a> format.<br>
+
+</dd><dt><b>--cNames</b> &lt;<i>confidence attribute count, confidence attribute name 1, confidence attribute name 2, ...</i>&gt;]
+</dt><dd> These strings give the names of the attributes encoding confidence information.<BR>
+
+</dd><dt><b>--cExps</b> &lt;<i>confidence attribute count, confidence attribute value 1, confidence attribute value 2, ...</i>&gt;]
+</dt><dd> These floating point values encode the exponents applied to the confidence attributes when scaling the normal magnitude.<BR>
+Note that the count of confidence attributes for the <B>--cNames</B> and <B>--cExps</B> need to match.
+
+</dd><dt>[<b>--verbose</b>]
+</dt><dd> Enabling this flag provides a description of running state.
+
+</dd>
+</DETAILS>
+</dl>
+</ul>
+
+
+
 <hr>
 <a name="LIBRARY"><b>HEADER-ONLY LIBRARY</b></a><br>
 <UL>
@@ -931,56 +1072,90 @@ individual components of the visualizer.
 <SUMMARY>
 <font size="+1"><b>Reconstruction.example.cpp</b></font>
 </SUMMARY>
-In addition to executables, the reconstruction code can be interfaced into through the functionality implemented in <CODE>Reconstructors.h</CODE>.
-Using the functionality requires requires choosing a finite element type, <CODE>FEMSig</CODE> and defining one input stream and two output streams.
+In addition to executables, the reconstruction code can be interfaced into through the functionality implemented in <CODE>Reconstructors.h</CODE> and <CODE>Extrapolator.h</CODE>
+Using the functionality requires requires choosing a finite element type and defining input oriented-point stream and output vertex and face streams. In the descriptions below, the template parameter <CODE>Real</CODE> is the floating point type used to represent data (typically <code>float</code>) and <CODE>Dim</CODE> is the integer dimension of the space (fixed at <CODE>Dim</CODE>=3).
 <UL>
-<LI>The template parameter <CODE>FEMSig</CODE> describes the finite element type, which is a composite of the degree of the finite element and the boundary conditions it satisfies. Given an integer valued <CODE>Degree</CODE> and boundary type <CODE>BType</CODE> (one of <CODE>BOUNDARY_FREE</CODE>, <CODE>BOUNDARY_DIRICHLET</CODE>, and <CODE>BOUNDARY_NEUMANN</CODE> defined in <CODE>BSplineData.h</CODE>), the signature is defined by setting:
+<LI>The template parameter <CODE>FEMSig</CODE> describes the 1D finite element type, which is a composite of the degree of the finite element and the boundary conditions it satisfies. Given an integer valued <CODE>Degree</CODE> and boundary type <CODE>BType</CODE> (one of <CODE>BOUNDARY_FREE</CODE>, <CODE>BOUNDARY_DIRICHLET</CODE>, and <CODE>BOUNDARY_NEUMANN</CODE> defined in <CODE>BSplineData.h</CODE>), the signature is defined as:
 <PRE>
 <CODE>static const unsigned int FEMSig = FEMDegreeAndBType&lt; Degree , BoundaryType &gt;::Signature;</CODE>
 </PRE>
+<LI>The template parameter <CODE>FEMSIgs</CODE> describes the tensor-product finite element type, typically defined as an "isotropic" element with the same 1D finite element type across all <CODE>Dim</CODE> dimensions. It is defined as:
+<PRE>
+<CODE>using FEMSigs = IsotropicUIntPack&lt; Dim , FEMSig &gt;;</CODE>
+</PRE>
 </UL>
-The three streams are defined by overriding virtual stream classes. In the descriptions below, the template parameter <CODE>Real</CODE> is the floating point type used to represent data (typically <code>float</code>) and <CODE>Dim</CODE> is the integer dimension of the space (fixed at <CODE>Dim</CODE>=3). The namespace <CODE>Reconstructor</CODE> is omitted for brevity.
+The three streams are defined by overriding virtual stream classes. The namespace <CODE>PoissonRecon::Reconstructor</CODE> is omitted for brevity.
 <UL>
 <LI><B>Input sample stream</B>: This class derives from the <CODE>InputSampleStream&lt; Real , Dim &gt;</CODE> class.
 The base class has two pure virtual methods that need to be over-ridden:
 <UL>
 <LI><CODE>void reset( void )</CODE>:<BR>
 This method resets the stream to the start (necessary because the reconstruction code performs two passes over the input samples).
-<LI><CODE>bool base_read( Point&lt; Real , Dim &gt; &#38;p , Point&lt; Real , Dim &gt; &#38;n )</CODE>:<BR>
+<LI><CODE>bool read( Point&lt; Real , Dim &gt; &#38;p , Point&lt; Real , Dim &gt; &#38;n )</CODE>:<BR>
 This method tries to read the next pair of positions/normals from the stream, returning <code>true</code> if the read was successful and <code>false</code> if the read failed (i.e. the end of the stream was reached). The class <code>Point&lt; Real , Dim &gt;</code> represents a point in <code>Dim</code>-dimensional space, can be accessed like an array (i.e. overloads the bracked operator) and supports algebraic manipulation like addition and scalar multiplication.
 </UL>
 <LI><B>Output polygon stream</B>: This class derives from the <CODE>OutputPolygonStream</CODE> class.
-The base class has one pure virtual method that needs to be over-ridden:
+The base class has two pure virtual methods that needs to be over-ridden:
 <UL>
-<LI><CODE>void base_write( const std::vector&lt; node_index_type &gt; &#38;polygon )</CODE>:<BR>
-This method writes the information for the next polygon into the stream, with the polygon represented as a <code>std::vector</code> of integral indices. (The type <code>node_index_type</code> is an <code>unsigned int</code> if the <CODE>BIG_DATA</CODE> macro is not defined an <code>unsigned long long</code> if it is.)
+<LI><CODE>size_t size( void )</CODE>:<BR>
+This method returns the number of polygons written.
+<LI><CODE>size_t write( const std::vector&lt; node_index_type &gt; &#38;polygon )</CODE>:<BR>
+This method writes the information for the next polygon into the stream, with the polygon represented as a <code>std::vector</code> of integral indices. (The type <code>node_index_type</code> is an <code>unsigned int</code> if the <CODE>BIG_DATA</CODE> macro is not defined an <code>unsigned long long</code> if it is.) The function returns the index of the written polygon.
 </UL>
 <LI><B>Output vertex stream</B>: This class derives from the <CODE>OutputVertexStream&lt; Real , Dim &gt;</CODE> class.
-The base class has one pure virtual method that needs to be over-ridden:
+The base class has two pure virtual methods that needs to be over-ridden:
 <UL>
-<LI><CODE>void base_write( Point&lt; Real , Dim &gt; p , Point&lt; Real , Dim &gt; g , Real w )</CODE>:<BR>
-This method writes the information for the next vertx into the stream. The data includes the position of the vertex, <CODE>p</CODE>, as well as the gradient, <code>g</code>, and density weight, <code>w</code> if the extraction code is asked to compute those.
+<LI><CODE>size_t size( void )</CODE>:<BR>
+This method returns the number of vertices written.
+<LI><CODE>size_t write( Point&lt; Real , Dim &gt; p , Point&lt; Real , Dim &gt; g , Real w )</CODE>:<BR>
+This method writes the information for the next vertx into the stream. The data includes the position of the vertex, <CODE>p</CODE>, as well as the gradient, <code>g</code>, and density weight, <code>w</code> if the extraction code is asked to compute those. The function returns the index of the written vertex.
 </UL>
 </UL>
-The reconstructed surface is then computed in two steps:
+The reconstructed surface is then computed in two steps. First, an <CODE>Implict&lt; Real , Dim , FEMSigs &gt;</CODE> object is created, encoding the implicit function describing the geometry, as well as a density function describing the distribution of points in space and (possibly) a function extrapolating per-sample information into a volumetric function. Then, the implicit function is iso-surfaced, (possibly) with auxialiary density and color information evaluated at the vertex positions.
 <UL>
-<LI><CODE>Poisson::Implicit&lt; Real , Dim , FEMSig &gt;::Implicit( InputSampleStream&lt; Real , Dim &gt; &#38;sStream , SolutionParameters&lt; Real &gt; sParams )</CODE>:<BR>
-This constructor creates a Poisson reconstruction object from an input sample stream (<code>sStream</code>) and a description of the reconstruction parameters (<code>sParams</code>) desribing the depth, number of samples per node, etc. (<code>Reconstructors.h</code>, line 229). This object derives from <CODE>Implicit&lt; Real , Dim , FEMSig &gt;</CODE>.
-<LI><CODE>void Implicit&lt; Real , Dim , FEMSig &gt::extractLevelSet( OutputVertexStream&lt; Real , Dim &gt; &#38;vStream , &#38;pStream , LevelSetExtractionParameters meParams )</CODE>:<BR>
-This member function takes references to the output vertex and polygon streams (<code>vStream</code> and <code>pStream</code>) and parameters for level-set extraction (<code>meParams</code>) and computes the extracted triangle/polygon mesh, writing its vertices and faces into the corresponding output streams as they are generated (<code>Reconstructors.h</code>, line 98).
+<LI><CODE>Implict&lt; Real , Dim , FEMSigs &gt; *Poisson::Solver&lt; Real , Dim , FEMSigs &gt;::Solve( InputOrientedSampleStream&lt; Real , Dim &gt; &amp;pointStream , SolutionParameters&lt; Real &gt params )</CODE>:<BR>
+This function takes in an input oriented sample stream (<code>pointStream</code>) and a description of the reconstruction parameters (<code>params</code>) desribing the depth, number of samples per node, etc., and returns a pointer to the (dynamically allocated) implicit represetation (<code>Reconstructors.h</code>, line 622).
+<LI><CODE>void Implicit&lt; Real , Dim , FEMSigs &gt::extractLevelSet( OutputVertexStream&lt; Real , Dim &gt; &#38;vStream , OutputFaceStream&lt; Dim-1 &gt; &#38;pStream , LevelSetExtractionParameters meParams )</CODE>:<BR>
+This member function takes references to the output vertex (<code>vStream</code>) and polygon (<code>pStream</code>) streams and parameters for level-set extraction (<code>meParams</code>) and computes the extracted mesh, writing its vertices and faces into the corresponding output streams as they are generated (<code>Reconstructors.h</code>, line 548).
+</UL>
+In Addition, the code supports evaluation of the implicit function at points within the bounding cube:
+<UL>
+<LI><CODE>Implicit&lt; Real , Dim , FEMSigs &gt;::evaluator( void )</CODE>:<BR>
+This member function returns an object of type <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator</CODE>. (Note that as the <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator</CODE> object stores <CODE>const</CODE> references to the state in the <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;</CODE> object, it will not be valid once the defining <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;</CODE> object goes out of scope.)
+<LI><CODE>Real Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator::operator()( Point&lt; Real , Dim &gt; )</CODE>:<BR>
+This member function returns the value of the implicit function at the prescribed point. The point is assumed to be given in world coordinates, and a <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator::OutOfUnitCubeException</CODE> is thrown if it is outside of the unit-cube containing the input samples.
+<LI><CODE>Point&lt; Real , Dim &gt; Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator::grad( Point&lt; Real , Dim &gt; )</CODE>:<BR>
+This member function returns the gradient of the implicit function at the prescribed point. The point is assumed to be given in world coordinates, and a <CODE>Implicit&lt; Real , Dim , FEMSigs &gt;::Evaluator::OutOfUnitCubeException</CODE> is thrown if it is outside of the unit-cube containing the input samples.
+</UL>
+And, for samples with auxiliary data, the code supports construction of an extrapolating auxiliary data field that can be queried within the bounding cube:
+<UL>
+<LI><CODE>Extrapolator::Implicit&lt; Real , Dim , AuxData , DataDegree &gt;::Implicit( InputStream&lt; Real , Dim , AuxData &gt; &#38;pointStream , Parameters params , AuxData zeroAuxData )</CODE>:<BR>
+This constructor creates an extrapolating field from the samples with auxiliary data, using the prescribed parameters. The final parameter, <code>zeroAuxData</code> is an object representing the zero-element of the auxiliary data.
+<LI><CODE>AuxData Extrapolator::Implicit&lt; Real , Dim , AuxData , DataDegree &gt;::operator()( Point&lt; Real , Dim &gt; p )</CODE>:<BR>
+This method returns the extrapolated value at the prescribed position.
 </UL>
 <B>Code walk-through</B>:<br>
 <UL>
 These steps can be found in the <code>Reconstruction.example.cpp</code> code.
 <UL>
-<LI>The finite-elements signature is created in line 254.
-<LI>An input sample stream generating a specified number of random points on the surface of the sphere is defined in lines 78-115 and constructed in line 301.
-<LI>An output polygon stream that pushes the polygon to an <code>std::vector</code> of <code>std::vector&lt; int &gt;</code>s is defined in lines 164-179 and constructed in line 311.
-<LI>An output vertex stream that pushes just the position information to an <code>std::vector</code> of <code>Real</code>s is desfined in lines 182-192 and constructed in line 312.
-<LI>The reconstructor is constructed in line 304.
-<LI>The level-set extraction is performed on line 315.
+<LI>The finite-elements signatures are created in lines 322 and 325.
+<LI>An input sample stream generating a specified number of random points on the surface of the sphere is defined in lines 99-136 and constructed in line 393.
+<LI>An output polygon stream that pushes the polygon to an <code>std::vector</code> of <code>std::vector&lt; int &gt;</code>s is defined in lines 227-244 and constructed in line 403.
+<LI>An output vertex stream that pushes just the position information to an <code>std::vector</code> of <code>Real</code>s is desfined in lines 247-258 and constructed in line 404.
+<LI>The implicit representation is computed in line 396.
+<LI>The level-set extraction is performed on line 407.
+<LI>The evaluator is created on line 354.
+<LI>The evaluator is used to query the values and gradients of the implicit function in line 347.
+<LI>The extrapolator is constructed on line 425.
+<LI>The extrapolator is evaluated at the vertex positions at line 435.
 </UL>
-Note that a similar approach can be used to perform the <A HREF="http://mesh.brown.edu/ssd/">Smoothed Signed Distance</A> reconstruction (line 302). The approach also supports reconstruction of meshes with auxiliary information like color (lines 263-295), with the only constraint that the auxiliary data type supports the computation affine combinations (e.g. the <CODE>RGBColor</CODE> type defined in lines 60-75).
+Note that a similar approach can be used to perform the <A HREF="http://mesh.brown.edu/ssd/">Smoothed Signed Distance</A> reconstruction (lines 473 and 474).<BR>
+The approach also supports reconstruction of meshes with auxiliary information like color, with the only constraint that the auxiliary data type supports the computation affine combinations (e.g. the <CODE>RGBColor</CODE> type defined in lines 67-82). The auxiliary inform is derived in one of two ways:
+<OL>
+<LI> As part of the reconstruction process, so that the level-set extraction phase also sets the auxiliary information. (Lines 363-389)
+<LI> Independently by constructing the extrapolation field from the samples and then evaluating at the positions of the level-set vertices. (Lines 414-441)
+</OL>
+To avoid inefficient locking in a multi-threaded application, the <CODE>Add</CODE> method of the type trait <CODE>PoissonRecon::Atomic&lt;RGBColor&gt;</CODE> is specialized (lines 84-96) to define the atomic operation <CODE> a += b</CODE>.
 </UL>
 </DL>
 </UL>
@@ -1441,8 +1616,178 @@ Similarly, to reduce compilation times, support for specific degrees can be remo
 <LI> Fixed <code>--width</code> bug in estimating scale factor.
 </OL>
 
-</DETAILS>
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version15.10/">Version 15.10</a>:
+<OL>
+<LI> Added iso-curve extraction support (for 2D reconstruction)
+</OL>
 
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.01/">Version 16.01</a>:
+<OL>
+<LI> Added support for separte value interpolation in Poisson Surface Reconstruction
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.02/">Version 16.02</a>:
+<OL>
+<LI> Added support for additional <i>.ply</i> types
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.03/">Version 16.03</a>:
+<OL>
+<LI> Fixed <code>--width</code> compatibility bug with default depth.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.04/">Version 16.04</a>:
+<OL>
+<LI> Fixed <code>--exact</code> bug.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.05/">Version 16.05</a>:
+<OL>
+<LI> Fixed <code>ChunkPly</code> bug.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.06/">Version 16.06</a>:
+<OL>
+<LI> Added <code>--keepSeparate</code> flag to <code>PoissonReconServer</code> to output non-fused geometry..
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.07/">Version 16.07</a>:
+<OL>
+<LI> Fixed <code>--width</code> bug.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.08/">Version 16.08</a>:
+<OL>
+<LI> Fixed <code>--kernelDepth</code> bug that occured when the <code>--width</code> flag was used to set the reconstruction depth.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.09/">Version 16.09</a>:
+<OL>
+<LI> Removed dependence on <code>_mktemp</code>.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version16.10/">Version 16.10</a>:
+<OL>
+<LI> Removed dependence on <code>_mktemp</code>.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version17.00/">Version 17.00</a>:
+<OL>
+<LI> Added code for converting oriented points to disks for visualization.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.00/">Version 18.00</a>:
+<OL>
+<LI> Encapsulated the code within the <CODE>PoissonRecon</CODE> namespace.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.01/">Version 18.01</a>:
+<OL>
+<LI> Introduced compiler support for CLANG-sanitized code via the pre-processor flag <CODE>SANITIZED_PR</CODE>.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.02/">Version 18.02</a>:
+<OL>
+<LI> Cleaned up bug in <ocde>PointsToDisks</code> executable.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.03/">Version 18.03</a>:
+<OL>
+<LI> Fixed bug occurring when the octree was complete.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.04/">Version 18.04</a>:
+<OL>
+<LI> Further sanitized multi-threading code.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.05/">Version 18.05</a>:
+<OL>
+<LI> Replaced <BODE>BlockedVector</CODE> with <CODE>NestedVector</CODE> to reduce synchronization.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.10/">Version 18.10</a>:
+<OL>
+<LI> Removed mutual exclusion in the iso-surfacing phase.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.20/">Version 18.20</a>:
+<OL>
+<LI> Added an interface for evaluating the implicit function's values and gradients at points inside the bounding cube.
+<LI> Added a <CODE>--evaluate</CODE> flag to the <CODE>Reconstruction.example</CODE> executable that evaluates the implicit function at an interior/exterior/boundary point on the sphere.
+<LI> Changed defaults for PoissonReconstruction to use value interpolation and to evaluate to 0.5 at the input samples.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.30/">Version 18.30</a>:
+<OL>
+<LI> Added an interface for evaluating the implicit data (e.g. color) field extrapolated from the samples.
+<LI> Modified the <CODE>--color</CODE> flag of the <CODE>Reconstruction.example</CODE> executable to support evaluation of colors from the extrapolated field.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.31/">Version 18.31</a>:
+<OL>
+<LI> Removed the smoothing option in the <CODE>SufaceTrimmer</CODE> executable.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.35/">Version 18.35</a>:
+<OL>
+<LI> Removed the confidence bias option.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.40/">Version 18.40</a>:
+<OL>
+<LI> Added support for extrapolator accumulation.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.41/">Version 18.41</a>:
+<OL>
+<LI> Removed explicitly instantiated static variables.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.42/">Version 18.42</a>:
+<OL>
+<LI> Fixed parallelization bugs in <CODE>Extrapolator</CODE>.
+<LI> Moified <CODE>Reconstruction.example</CODE> to use parallelized extrapolation.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.50/">Version 18.50</a>:
+<OL>
+<LI> Cleaned-up multi-threading code.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.55/">Version 18.55</a>:
+<OL>
+<LI> Added the <b>ScaleNormals</B> executable.
+<LI> Removed the <b>--confidenceBias</B> flag.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.60/">Version 18.60</a>:
+<OL>
+<LI> Changed the <B>--confidence</b> flag to be a bool (enabling is equivalent to having set to 1.0).
+<LI> Resolved clang compilation issues.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.70/">Version 18.70</a>:
+<OL>
+<LI> Added support for 2D iso-surfacing.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.71/">Version 18.71</a>:
+<OL>
+<LI> Fixed bug with width estimation reading translational component.
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.72/">Version 18.72</a>:
+<OL>
+<LI> Minor code refactoring
+</OL>
+
+<a href="https://www.cs.jhu.edu/~misha/Code/PoissonRecon/Version18.73/">Version 18.73</a>:
+<OL>
+<LI> Replaced <CODE>MK_ERROR_OUT</CODE> with <CODE>MK_THROW</CODE> to throw an exception rather than exit directly.
+</OL>
+
+</DETAILS>
 
 <hr>
 <a name="SUPPORT"><b>SUPPORT</b></a><br>

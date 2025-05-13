@@ -74,14 +74,14 @@ protected:
 };
 
 template< typename Real , unsigned int Dim >
-using SampleDataType = VectorTypeUnion< Real , typename VertexFactory::NormalFactory< Real , Dim >::VertexType , typename VertexFactory::DynamicFactory< Real >::VertexType >;
+using SampleDataType = DirectSum< Real , typename VertexFactory::NormalFactory< Real , Dim >::VertexType , typename VertexFactory::DynamicFactory< Real >::VertexType >;
 
 template< typename Real , unsigned int Dim >
 struct SampleDataTypeSerializer : public Serializer< SampleDataType< Real , Dim > >
 {
 	using Normal = typename VertexFactory::NormalFactory< Real , Dim >::VertexType;
 	using AuxData = typename VertexFactory::DynamicFactory< Real >::VertexType;
-	using Data = VectorTypeUnion< Real , Normal , AuxData >;
+	using Data = DirectSum< Real , Normal , AuxData >;
 
 	SampleDataTypeSerializer( const std::vector< PlyProperty > &properties ) : _factory( properties ){}
 
@@ -108,7 +108,7 @@ struct ProjectiveSampleDataTypeSerializer : public Serializer< ProjectiveData< S
 {
 	using Normal = typename VertexFactory::NormalFactory< Real , Dim >::VertexType;
 	using AuxData = typename VertexFactory::DynamicFactory< Real >::VertexType;
-	using Data = ProjectiveData< VectorTypeUnion< Real , Normal , AuxData > , Real >;
+	using Data = ProjectiveData< DirectSum< Real , Normal , AuxData > , Real >;
 
 	ProjectiveSampleDataTypeSerializer( const std::vector< PlyProperty > &properties ) : _factory( properties ){}
 
@@ -249,7 +249,7 @@ struct ClientServerStream : BinaryStream
 				tries++;
 			}
 			_fs.open( _fileName , std::ios::in | std::ios::binary );
-			if( !_fs.is_open() ) ERROR_OUT( "Failed to open file for reading: " , _fileName );
+			if( !_fs.is_open() ) MK_THROW( "Failed to open file for reading: " , _fileName );
 		}
 		else
 		{
@@ -266,10 +266,10 @@ struct ClientServerStream : BinaryStream
 				std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 				tries++;
 			}
-			if( !validFile( _fileName ) ) ERROR_OUT( "File exists: " , _fileName , " , " , tries , " / " , maxTries );
+			if( !validFile( _fileName ) ) MK_THROW( "File exists: " , _fileName , " , " , tries , " / " , maxTries );
 
 			_fs.open( _fileName , std::ios::out | std::ios::binary );
-			if( !_fs.is_open() ) ERROR_OUT( "Failed to open file for writing: " , _fileName );
+			if( !_fs.is_open() ) MK_THROW( "Failed to open file for writing: " , _fileName );
 		}
 	}
 	~ClientServerStream( void )
@@ -280,7 +280,7 @@ struct ClientServerStream : BinaryStream
 	}
 
 protected:
-	typename std::conditional< ReadFromFile , std::ifstream , std::ofstream >::type _fs;
+	std::conditional_t< ReadFromFile , std::ifstream , std::ofstream > _fs;
 	SocketStream &_socket;
 	std::string _fileName;
 
@@ -322,8 +322,7 @@ ClientReconstructionInfo< Real , Dim >::ClientReconstructionInfo( void )
 	distributionDepth = 0;
 	baseDepth = 5;
 	iters = 8;
-	confidence = (Real)0.;
-	confidenceBias = (Real)0.;
+	confidence = false;
 	samplesPerNode = (Real)1.5;
 	dataX = (Real)32.;
 	density = false;
@@ -331,6 +330,9 @@ ClientReconstructionInfo< Real , Dim >::ClientReconstructionInfo( void )
 	mergeType = MergeType::TOPOLOGY_AND_FUNCTION;
 	bufferSize = BUFFER_IO;
 	filesPerDir = -1;
+	outputSolution = false;
+	targetValue = (Real)0.5;
+	gridCoordinates = false;
 }
 
 template< typename Real , unsigned int Dim >
@@ -343,34 +345,36 @@ ClientReconstructionInfo< Real , Dim >::ClientReconstructionInfo( BinaryStream &
 		b = _b!=0;
 		return true;
 	};
-	if( !stream.read( inDir ) ) ERROR_OUT( "Failed to read in dir" );
-	if( !stream.read( tempDir ) ) ERROR_OUT( "Failed to read temp dir" );
-	if( !stream.read( outDir ) ) ERROR_OUT( "Failed to read out dir" );
-	if( !stream.read( header ) ) ERROR_OUT( "Failed to read header" );
-	if( !stream.read( bufferSize ) ) ERROR_OUT( "Failed to read buffer size" );
-	if( !stream.read( filesPerDir ) ) ERROR_OUT( "Failed to read files per dir" );
-	if( !stream.read( reconstructionDepth ) ) ERROR_OUT( "Failed to read reconstruction depth" );
-	if( !stream.read( sharedDepth ) ) ERROR_OUT( "Failed to read shared depth" );
-	if( !stream.read( distributionDepth ) ) ERROR_OUT( "Failed to read distribution depth" );
-	if( !stream.read( baseDepth ) ) ERROR_OUT( "Failed to read base depth" );
-	if( !stream.read( kernelDepth ) ) ERROR_OUT( "Failed to read kernel depth" );
-	if( !stream.read( solveDepth ) ) ERROR_OUT( "Failed to read solveDepth depth" );
-	if( !stream.read( iters ) ) ERROR_OUT( "Failed to read iters" );
-	if( !stream.read( cgSolverAccuracy ) ) ERROR_OUT( "Failed to read CG-solver-accuracy" );
-	if( !stream.read( pointWeight ) ) ERROR_OUT( "Failed to read point-weight" );
-	if( !stream.read( confidence ) ) ERROR_OUT( "Failed to read confidence" );
-	if( !stream.read( confidenceBias ) ) ERROR_OUT( "Failed to read confidence-bias" );
-	if( !stream.read( samplesPerNode ) ) ERROR_OUT( "Failed to read samples-per-node" );
-	if( !stream.read( dataX ) ) ERROR_OUT( "Failed to read data-multiplier" );
-	if( !stream.read( padSize ) ) ERROR_OUT( "Failed to read padSize" );
-	if( !stream.read( verbose ) ) ERROR_OUT( "Failed to read verbose" );
-	if( !stream.read( mergeType ) ) ERROR_OUT( "Failed to read merge-type" );
-	if( !ReadBool( density ) ) ERROR_OUT( "Failed to read density flag" );
-	if( !ReadBool( linearFit ) ) ERROR_OUT( "Failed to read linear-fit flag" );
-	if( !ReadBool( ouputVoxelGrid ) ) ERROR_OUT( "Failed to read output-voxel-grid flag" );
+	if( !stream.read( inDir ) ) MK_THROW( "Failed to read in dir" );
+	if( !stream.read( tempDir ) ) MK_THROW( "Failed to read temp dir" );
+	if( !stream.read( outDir ) ) MK_THROW( "Failed to read out dir" );
+	if( !stream.read( header ) ) MK_THROW( "Failed to read header" );
+	if( !stream.read( bufferSize ) ) MK_THROW( "Failed to read buffer size" );
+	if( !stream.read( filesPerDir ) ) MK_THROW( "Failed to read files per dir" );
+	if( !stream.read( reconstructionDepth ) ) MK_THROW( "Failed to read reconstruction depth" );
+	if( !stream.read( sharedDepth ) ) MK_THROW( "Failed to read shared depth" );
+	if( !stream.read( distributionDepth ) ) MK_THROW( "Failed to read distribution depth" );
+	if( !stream.read( baseDepth ) ) MK_THROW( "Failed to read base depth" );
+	if( !stream.read( kernelDepth ) ) MK_THROW( "Failed to read kernel depth" );
+	if( !stream.read( solveDepth ) ) MK_THROW( "Failed to read solveDepth depth" );
+	if( !stream.read( iters ) ) MK_THROW( "Failed to read iters" );
+	if( !stream.read( cgSolverAccuracy ) ) MK_THROW( "Failed to read CG-solver-accuracy" );
+	if( !stream.read( targetValue ) ) MK_THROW( "Failed to read target-value" );
+	if( !stream.read( pointWeight ) ) MK_THROW( "Failed to read point-weight" );
+	if( !stream.read( samplesPerNode ) ) MK_THROW( "Failed to read samples-per-node" );
+	if( !stream.read( dataX ) ) MK_THROW( "Failed to read data-multiplier" );
+	if( !stream.read( padSize ) ) MK_THROW( "Failed to read padSize" );
+	if( !stream.read( verbose ) ) MK_THROW( "Failed to read verbose" );
+	if( !stream.read( mergeType ) ) MK_THROW( "Failed to read merge-type" );
+	if( !ReadBool( density ) ) MK_THROW( "Failed to read density flag" );
+	if( !ReadBool( linearFit ) ) MK_THROW( "Failed to read linear-fit flag" );
+	if( !ReadBool( outputSolution ) ) MK_THROW( "Failed to read output-solution flag" );
+	if( !ReadBool( gridCoordinates ) ) MK_THROW( "Failed to read grid-coordinates flag" );
+	if( !ReadBool( ouputVoxelGrid ) ) MK_THROW( "Failed to read output-voxel-grid flag" );
+	if( !ReadBool( confidence ) ) MK_THROW( "Failed to read confidence flag" );
 	{
 		size_t sz;
-		if( !stream.read( sz ) ) ERROR_OUT( "Failed to read number of auxiliary properties" );
+		if( !stream.read( sz ) ) MK_THROW( "Failed to read number of auxiliary properties" );
 		auxProperties.resize(sz);
 		for( size_t i=0 ; i<sz ; i++ ) auxProperties[i].read( stream );
 	}
@@ -398,9 +402,8 @@ void ClientReconstructionInfo< Real , Dim >::write( BinaryStream &stream ) const
 	stream.write( solveDepth );
 	stream.write( iters );
 	stream.write( cgSolverAccuracy );
+	stream.write( targetValue );
 	stream.write( pointWeight );
-	stream.write( confidence );
-	stream.write( confidenceBias );
 	stream.write( samplesPerNode );
 	stream.write( dataX );
 	stream.write( padSize );
@@ -408,7 +411,10 @@ void ClientReconstructionInfo< Real , Dim >::write( BinaryStream &stream ) const
 	stream.write( mergeType );
 	WriteBool( density );
 	WriteBool( linearFit );
+	WriteBool( outputSolution );
+	WriteBool( gridCoordinates );
 	WriteBool( ouputVoxelGrid );
+	WriteBool( confidence );
 	{
 		size_t sz = auxProperties.size();
 		stream.write( sz );
@@ -425,7 +431,7 @@ std::string ClientReconstructionInfo< Real , Dim >::sharedFile( unsigned int idx
 	case BACK:   sStream << PointPartition::FileDir( tempDir , header ) << "." << idx << ".back.shared"  ; break;
 	case CENTER: sStream << PointPartition::FileDir( tempDir , header ) << "." << idx << ".shared"       ; break;
 	case FRONT:  sStream << PointPartition::FileDir( tempDir , header ) << "." << idx << ".front.shared" ; break;
-	default: ERROR_OUT( "Unrecognized share type: " , shareType );
+	default: MK_THROW( "Unrecognized share type: " , shareType );
 	}
 	return sStream.str();
 }

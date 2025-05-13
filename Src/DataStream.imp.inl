@@ -33,7 +33,7 @@ template< typename Factory >
 ASCIIInputDataStream< Factory >::ASCIIInputDataStream( const char* fileName , const Factory &factory ) : _factory( factory )
 {
 	_fp = fopen( fileName , "r" );
-	if( !_fp ) ERROR_OUT( "Failed to open file for reading: %s" , fileName );
+	if( !_fp ) MK_THROW( "Failed to open file for reading: %s" , fileName );
 }
 
 template< typename Factory >
@@ -47,7 +47,7 @@ template< typename Factory >
 void ASCIIInputDataStream< Factory >::reset( void ) { fseek( _fp , 0 , SEEK_SET ); }
 
 template< typename Factory >
-bool ASCIIInputDataStream< Factory >::base_read( Data &d ){ return _factory.readASCII( _fp , d ); }
+bool ASCIIInputDataStream< Factory >::read( Data &d ){ return _factory.readASCII( _fp , d ); }
 
 ///////////////////////////
 // ASCIIOutputDataStream //
@@ -56,7 +56,7 @@ template< typename Factory >
 ASCIIOutputDataStream< Factory >::ASCIIOutputDataStream( const char* fileName , const Factory &factory ) : _factory( factory )
 {
 	_fp = fopen( fileName , "w" );
-	if( !_fp ) ERROR_OUT( "Failed to open file for writing: %s" , fileName );
+	if( !_fp ) MK_THROW( "Failed to open file for writing: %s" , fileName );
 }
 
 template< typename Factory >
@@ -67,7 +67,7 @@ ASCIIOutputDataStream< Factory >::~ASCIIOutputDataStream( void )
 }
 
 template< typename Factory >
-void ASCIIOutputDataStream< Factory >::base_write( const Data &d ){ _factory.writeASCII( _fp , d ); }
+size_t ASCIIOutputDataStream< Factory >::write( const Data &d ){ _factory.writeASCII( _fp , d ) ; return _sz++; }
 
 ///////////////////////////
 // BinaryInputDataStream //
@@ -76,14 +76,14 @@ template< typename Factory >
 BinaryInputDataStream< Factory >::BinaryInputDataStream( const char* fileName , const Factory &factory ) : _factory(factory)
 {
 	_fp = fopen( fileName , "rb" );
-	if( !_fp ) ERROR_OUT( "Failed to open file for reading: %s" , fileName );
+	if( !_fp ) MK_THROW( "Failed to open file for reading: %s" , fileName );
 }
 
 template< typename Factory >
 void BinaryInputDataStream< Factory >::reset( void ) { fseek( _fp , 0 , SEEK_SET ); }
 
 template< typename Factory >
-bool BinaryInputDataStream< Factory >::base_read( Data &d ){ return _factory.readBinary( _fp , d ); }
+bool BinaryInputDataStream< Factory >::read( Data &d ){ return _factory.readBinary( _fp , d ); }
 
 ////////////////////////////
 // BinaryOutputDataStream //
@@ -92,11 +92,11 @@ template< typename Factory >
 BinaryOutputDataStream< Factory >::BinaryOutputDataStream( const char* fileName , const Factory &factory ) : _factory(factory)
 {
 	_fp = fopen( fileName , "wb" );
-	if( !_fp ) ERROR_OUT( "Failed to open file for writing: %s" , fileName );
+	if( !_fp ) MK_THROW( "Failed to open file for writing: %s" , fileName );
 }
 
 template< typename Factory >
-void BinaryOutputDataStream< Factory >::base_write( const Data &d ){ return _factory.writeBinary( _fp , d ); }
+size_t BinaryOutputDataStream< Factory >::write( const Data &d ){ _factory.writeBinary( _fp , d ); return _sz++; }
 
 ////////////////////////
 // PLYInputDataStream //
@@ -131,7 +131,7 @@ void PLYInputDataStream< Factory >::reset( void )
 	float version;
 	if( _ply ) _free();
 	_ply = PlyFile::Read( _fileName, _elist, fileType, version );
-	if( !_ply ) ERROR_OUT( "Failed to open ply file for reading: " , _fileName );
+	if( !_ply ) MK_THROW( "Failed to open ply file for reading: " , _fileName );
 
 	bool foundData = false;
 	for( int i=0 ; i<_elist.size() ; i++ )
@@ -142,7 +142,7 @@ void PLYInputDataStream< Factory >::reset( void )
 		{
 			size_t num_elems;
 			std::vector< PlyProperty > plist = _ply->get_element_description( elem_name , num_elems );
-			if( !plist.size() ) ERROR_OUT( "Failed to get description for \"" , elem_name , "\"" );
+			if( !plist.size() ) MK_THROW( "Failed to get description for \"" , elem_name , "\"" );
 
 			foundData = true;
 			_pCount = num_elems , _pIdx = 0;
@@ -150,16 +150,18 @@ void PLYInputDataStream< Factory >::reset( void )
 			bool* properties = new bool[ _factory.plyReadNum() ];
 			for( unsigned int i=0 ; i<_factory.plyReadNum() ; i++ )
 			{
-				PlyProperty prop = _factory.isStaticallyAllocated() ? _factory.plyStaticReadProperty(i) : _factory.plyReadProperty(i);
+				PlyProperty prop;
+				if constexpr( Factory::IsStaticallyAllocated() ) prop = _factory.plyStaticReadProperty(i);
+				else                                             prop = _factory.plyReadProperty(i);
 				if( !_ply->get_property( elem_name , &prop ) ) properties[i] = false;
 				else                                           properties[i] = true;
 			}
 			bool valid = _factory.plyValidReadProperties( properties );
 			delete[] properties;
-			if( !valid ) ERROR_OUT( "Failed to validate properties in file" );
+			if( !valid ) MK_THROW( "Failed to validate properties in file" );
 		}
 	}
-	if( !foundData ) ERROR_OUT( "Could not find data in ply file" );
+	if( !foundData ) MK_THROW( "Could not find data in ply file" );
 }
 
 template< typename Factory >
@@ -174,11 +176,11 @@ PLYInputDataStream< Factory >::~PLYInputDataStream( void )
 }
 
 template< typename Factory >
-bool PLYInputDataStream< Factory >::base_read( Data &d )
+bool PLYInputDataStream< Factory >::read( Data &d )
 {
 	if( _pIdx<_pCount )
 	{
-		if( _factory.isStaticallyAllocated() ) _ply->get_element( (void *)&d );
+		if constexpr( Factory::IsStaticallyAllocated() ) _ply->get_element( (void *)&d );
 		else
 		{
 			_ply->get_element( PointerAddress( _buffer ) );
@@ -199,14 +201,16 @@ PLYOutputDataStream< Factory >::PLYOutputDataStream( const char* fileName , cons
 	float version;
 	std::vector< std::string > elem_names = { std::string( "vertex" ) };
 	_ply = PlyFile::Write( fileName , elem_names , fileType , version );
-	if( !_ply ) ERROR_OUT( "Failed to open ply file for writing: " , fileName );
+	if( !_ply ) MK_THROW( "Failed to open ply file for writing: " , fileName );
 
 	_pIdx = 0;
 	_pCount = count;
 	_ply->element_count( "vertex" , _pCount );
 	for( unsigned int i=0 ; i<_factory.plyWriteNum() ; i++ )
 	{
-		PlyProperty prop = _factory.isStaticallyAllocated() ? _factory.plyStaticWriteProperty(i) : _factory.plyWriteProperty(i);
+		PlyProperty prop;
+		if constexpr( Factory::IsStaticallyAllocated() ) prop = _factory.plyStaticWriteProperty(i);
+		else                                             prop = _factory.plyWriteProperty(i);
 		_ply->describe_property( "vertex" , &prop );
 	}
 	_ply->header_complete();
@@ -218,21 +222,21 @@ PLYOutputDataStream< Factory >::PLYOutputDataStream( const char* fileName , cons
 template< typename Factory >
 PLYOutputDataStream< Factory >::~PLYOutputDataStream( void )
 {
-	if( _pIdx!=_pCount ) ERROR_OUT( "Streamed points not equal to total count: " , _pIdx , " != " , _pCount );
+	if( _pIdx!=_pCount ) MK_THROW( "Streamed points not equal to total count: " , _pIdx , " != " , _pCount );
 	delete _ply;
 	DeletePointer( _buffer );
 }
 
 template< typename Factory >
-void PLYOutputDataStream< Factory >::base_write( const Data &d )
+size_t PLYOutputDataStream< Factory >::write( const Data &d )
 {
-	if( _pIdx==_pCount ) ERROR_OUT( "Trying to add more points than total: " , _pIdx , " < " , _pCount );
-	if( _factory.isStaticallyAllocated() ) _ply->put_element( (void *)&d );
+	if( _pIdx==_pCount ) MK_THROW( "Trying to add more points than total: " , _pIdx , " < " , _pCount );
+	if constexpr( Factory::IsStaticallyAllocated() ) _ply->put_element( (void *)&d );
 	else
 	{
 		_factory.toBuffer( d , _buffer );
 		_ply->put_element( PointerAddress( _buffer ) );
 	}
-	_pIdx++;
+	return _pIdx++;
 }
 

@@ -26,8 +26,6 @@ ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF S
 DAMAGE.
 */
 
-#include "DataStream.imp.h"
-
 template< typename Real , unsigned int Dim , BoundaryType BType , unsigned int Degree >
 struct Server
 {
@@ -41,8 +39,8 @@ struct Server
 	typedef typename AuxDataFactory::VertexType AuxData;
 	typedef VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::Factory< Real , VertexFactory::NormalFactory< Real , Dim > , AuxDataFactory > > InputSampleFactory;
 	typedef VertexFactory::Factory< Real , VertexFactory::NormalFactory< Real , Dim > , AuxDataFactory > InputSampleDataFactory;
-	typedef VectorTypeUnion< Real , Point< Real , Dim > , typename AuxDataFactory::VertexType > InputSampleDataType;
-	typedef VectorTypeUnion< Real , Point< Real , Dim > , InputSampleDataType > InputSampleType;
+	typedef DirectSum< Real , Point< Real , Dim > , typename AuxDataFactory::VertexType > InputSampleDataType;
+	typedef DirectSum< Real , Point< Real , Dim > , InputSampleDataType > InputSampleType;
 	typedef InputDataStream< InputSampleType > InputPointStream;
 	typedef RegularTreeNode< Dim , FEMTreeNodeData , depth_and_offset_type > FEMTreeNode;
 
@@ -63,12 +61,12 @@ protected:
 	};
 	struct _State6
 	{
-		using SliceSigs = typename Sigs::Reverse::Rest::Reverse;
+		using SliceSigs = typename Sigs::Transpose::Rest::Transpose;
 		using Vertex = typename VertexFactory::PositionFactory< Real , Dim-1 >::VertexType;
 		FEMTree< Dim-1 , Real > *sliceTree;
 		XForm< Real , Dim > xForm;
 		DenseNodeData< Real , SliceSigs > solution , dSolution;
-		std::vector< typename LevelSetExtractor< Real , Dim-1 >::SliceValues > sliceValues , dSliceValues;
+		std::vector< std::conditional_t< Dim==3 , typename LevelSetExtractor< Real , 2 >::SliceValues , char > > sliceValues , dSliceValues;
 		std::vector< Point< Real , Dim-1 > > vertices;
 
 		_State6( void ) : sliceTree(NULL) {}
@@ -355,7 +353,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 	state4.constraints = state4.tree.initDenseNodeData( Sigs() );
 
 	{
-		Real targetValue = (Real)0.5;
+		Real targetValue = clientReconInfo.targetValue;
 		state4.iInfo = new ApproximatePointInterpolationInfo( Reconstructor::Poisson::ConstraintDual< Dim , Real >( targetValue , clientReconInfo.pointWeight * cumulativePointWeight.value() ) , Reconstructor::Poisson::SystemDual< Dim , Real >( clientReconInfo.pointWeight * cumulativePointWeight.value() ) , true );
 		state4.iInfo->iData.reserve( state4.tree.nodesSize() );
 	}
@@ -386,7 +384,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 
 			timer = Timer();
 			for( unsigned int i=0 ; i<_constraints.size() ; i++ )
-				if( clientToServer[i]==-1 || clientToServer[i]>=(node_index_type)state4.constraints.size() ){ WARN_ONCE( "Unmatched client node(s): " , clientToServer[i] ); }
+				if( clientToServer[i]==-1 || clientToServer[i]>=(node_index_type)state4.constraints.size() ){ MK_WARN_ONCE( "Unmatched client node(s): " , clientToServer[i] ); }
 				else state4.constraints[ clientToServer[i] ] += _constraints[i];
 			phaseInfo.processTime += timer.wallTime();
 		}
@@ -406,7 +404,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 		{
 			Timer timer;
 			SparseNodeData< ProjectiveData< AuxData , Real > , IsotropicUIntPack< Dim , DataSig > > *_auxDataField;
-			if( !auxDataFactory.isStaticallyAllocated() )
+			if constexpr( !AuxDataFactory::IsStaticallyAllocated() )
 			{
 				ProjectiveAuxDataTypeSerializer< Real > serializer( clientReconInfo.auxProperties );
 				_auxDataField = new SparseNodeData< ProjectiveData< AuxData , Real > , IsotropicUIntPack< Dim , DataSig > >( clientStream , serializer );
@@ -483,7 +481,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 			if( d<0 ) return true;
 			else if( d>(int)clientReconInfo.sharedDepth )
 			{
-				WARN( "Why does the client have fine nodes?" );
+				MK_WARN( "Why does the client have fine nodes?" );
 				return false;
 			}
 			else
@@ -540,7 +538,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 			phaseInfo.processTime += timer.wallTime();
 
 			timer = Timer();
-			if( !auxDataFactory.isStaticallyAllocated() )
+			if constexpr( !AuxDataFactory::IsStaticallyAllocated() )
 			{
 				ProjectiveAuxDataTypeSerializer< Real > serializer( clientReconInfo.auxProperties );
 				_auxDataField.write( clientStream , serializer );
@@ -566,6 +564,23 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase4( const ClientReconstruc
 		isoValue = (Real)( isoInfo.first / isoInfo.second );
 	}
 
+	if( clientReconInfo.outputSolution )
+	{
+		std::string outFileName = std::string( "solution.tree" );
+		if( clientReconInfo.outDir.length() ) outFileName = PointPartition::FileDir( clientReconInfo.outDir , outFileName );
+
+		FILE* fp = fopen( outFileName.c_str() , "wb" );
+		if( !fp ) MK_THROW( "Failed to open file for writing: " , outFileName );
+		FileStream fs(fp);
+		FEMTree< Dim , Real >::WriteParameter( fs );
+		DenseNodeData< Real , Sigs >::WriteSignatures( fs );
+		XForm< Real , Dim+1 > voxelToUnitCube = XForm< Real , Dim+1 >::Identity();
+		state4.tree.write( fs , false );
+		fs.write( voxelToUnitCube );
+		state4.solution.write( fs );
+		fclose( fp );
+	}
+
 	return phaseInfo;
 }
 
@@ -578,13 +593,14 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase6( const ClientReconstruc
 
 	sharedVertexCounts.resize( _clientSockets.size()-1 );
 
-	for( unsigned int i=0 ; i<_clientSockets.size()-1 ; i++ )
+	if constexpr( Dim==3 ) for( unsigned int i=0 ; i<_clientSockets.size()-1 ; i++ )
 	{
 		_State6 state6;
 
 		auto ReadSlice = [&]( BinaryStream &clientStream , DenseNodeData< Real , SliceSigs > &solution , DenseNodeData< Real , SliceSigs > &dSolution , XForm< Real , Dim > &modelToUnitCube )
 		{
-			FEMTree< Dim-1 , Real > *sliceTree = new FEMTree< Dim-1 , Real >( clientStream , modelToUnitCube , MEMORY_ALLOCATOR_BLOCK_SIZE );
+			FEMTree< Dim-1 , Real > *sliceTree = new FEMTree< Dim-1 , Real >( clientStream , MEMORY_ALLOCATOR_BLOCK_SIZE );
+			clientStream.read( modelToUnitCube );
 			solution.read( clientStream );
 			if( !clientReconInfo.linearFit ) dSolution.read( clientStream );
 			return sliceTree;
@@ -614,7 +630,7 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase6( const ClientReconstruc
 				int res1 = 0 , res2 = 0;
 				Pointer( Real ) values1 =  backSliceTree->template regularGridEvaluate< true >(  backSolution , res1 , -1 , false );
 				Pointer( Real ) values2 = frontSliceTree->template regularGridEvaluate< true >( frontSolution , res2 , -1 , false );
-				if( res1!=res2 ) ERROR_OUT( "Different resolutions: " , res1 , " != " , res2 );
+				if( res1!=res2 ) MK_THROW( "Different resolutions: " , res1 , " != " , res2 );
 				size_t count = 1;
 				for( unsigned int d=0 ; d<(Dim-1) ; d++ ) count *= (unsigned int)res1;
 				discontinuityCount += count;
@@ -657,11 +673,12 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase6( const ClientReconstruc
 				auto WriteBoundary = [&]( std::string fileName , const FEMTree< Dim-1 , Real > *sliceTree , const DenseNodeData< Real , SliceSigs > &solution )
 				{
 					FILE* fp = fopen( fileName.c_str() , "wb" );
-					if( !fp ) ERROR_OUT( "Failed to open file for writing: " , fileName );
+					if( !fp ) MK_THROW( "Failed to open file for writing: " , fileName );
 					FileStream fs(fp);
 					FEMTree< Dim-1 , Real >::WriteParameter( fs );
 					DenseNodeData< Real , SliceSigs >::WriteSignatures( fs );
-					sliceTree->write( fs , state6.xForm , false );
+					sliceTree->write( fs , false );
+					fs.write( state6.xForm );
 					solution.write( fs );
 					fclose( fp );
 				};
@@ -695,15 +712,16 @@ PhaseInfo Server< Real , Dim , BType , Degree >::_phase6( const ClientReconstruc
 			const typename FEMTree< Dim-1 , Real >::template DensityEstimator< Reconstructor::WeightDegree > *density=NULL;
 			const SparseNodeData< ProjectiveData< Data , Real > , IsotropicUIntPack< Dim-1 , DataSig > > *data=NULL;
 			{
-				VectorBackedOutputDataStream< Point< Real , Dim-1 > > _vertices( state6.vertices );
-				struct VertexStreamWrapper : public Reconstructor::OutputVertexStreamWrapper< Real , Dim-1 , Point< Real , Dim-1 > >
-				{
-					typedef Point< Real , Dim-1 > Vertex;
-					VertexStreamWrapper( OutputDataStream< Vertex > &stream , Vertex out ) : 
-						Reconstructor::OutputVertexStreamWrapper< Real , Dim-1 , Point< Real , Dim-1 > >( stream , out ) {}
-					void set( Vertex &out , const Reconstructor::BaseVertex< Real , Dim-1 > &in ){ out = in.template get<0>(); }
-				};
-				VertexStreamWrapper __vertexStream( _vertices , Point< Real , Dim-1 >() );
+				VectorBackedOutputDataStream< Point< Real , Dim-1 > > _vertexStream( state6.vertices );
+				using ExternalType = std::tuple< Point< Real , Dim-1 > , Point< Real , Dim-1 > , Real >;
+				using InternalType = std::tuple< Point< Real , Dim-1 > >;
+				auto converter = []( const ExternalType &xType )
+					{
+						InternalType iType;
+						std::get< 0 >( iType ) = std::get< 0 >( xType );
+						return iType;
+					};
+				OutputDataStreamConverter< InternalType , ExternalType > __vertexStream( _vertexStream , converter );
 
 				LevelSetExtractor< Real , Dim-1 >::SetSliceValues( SliceSigs() , UIntPack< Reconstructor::WeightDegree >() , *state6.sliceTree , clientReconInfo.reconstructionDepth , density , state6.solution , isoValue , __vertexStream , !clientReconInfo.linearFit , false , state6.sliceValues , LevelSetExtractor< Real , Dim-1 , Vertex >::SetIsoEdgesFlag() );
 				if( !clientReconInfo.linearFit ) LevelSetExtractor< Real , Dim-1 >::SetSliceValues( SliceSigs() , UIntPack< Reconstructor::WeightDegree >() , *state6.sliceTree , clientReconInfo.reconstructionDepth , density , state6.dSolution , isoValue , __vertexStream , false , false , state6.dSliceValues , LevelSetExtractor< Real , Dim-1 , Vertex >::SetCornerValuesFlag() );

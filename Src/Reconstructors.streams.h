@@ -29,617 +29,506 @@ DAMAGE.
 #ifndef RECONSTRUCTORS_STREAMS_INCLUDED
 #define RECONSTRUCTORS_STREAMS_INCLUDED
 
-#include <mutex>
+#include "FEMTree.h"
+#include "MyExceptions.h"
+#include "Array.h"
 
-// Basic types
-template< typename Real , unsigned int Dim >
-using BaseSample = VectorTypeUnion< Real , Position< Real , Dim > , Normal< Real , Dim > >;
-
-template< typename Real , unsigned int Dim , typename Data >
-using BaseSampleWithData = VectorTypeUnion< Real , Position< Real , Dim > , VectorTypeUnion< Real , Normal< Real , Dim > , Data > >;
-
-template< typename Real , unsigned int Dim >
-using BaseVertex = VectorTypeUnion< Real , Position< Real , Dim > , Normal< Real , Dim > , Real >;
-
-template< typename Real , unsigned int Dim , typename Data >
-using BaseVertexWithData = VectorTypeUnion< Real , Position< Real , Dim > , Gradient< Real , Dim > , Real , Data >;
-
-using Polygon = std::vector< node_index_type >;
-
-// Basic streams
-template< typename Real , unsigned int Dim                 > using BaseInputSampleStream         = InputDataStream< BaseSample        < Real , Dim >        >;
-template< typename Real , unsigned int Dim , typename Data > using BaseInputSampleWithDataStream = InputDataStream< BaseSampleWithData< Real , Dim , Data > >;
-
-template< typename Real , unsigned int Dim                 > using BaseOutputVertexStream         = OutputDataStream< BaseVertex        < Real , Dim >        >;
-template< typename Real , unsigned int Dim , typename Data > using BaseOutputVertexWithDataStream = OutputDataStream< BaseVertexWithData< Real , Dim , Data > >;
-
-using  InputPolygonStream =  InputDataStream< Polygon >;
-using OutputPolygonStream = OutputDataStream< Polygon >;
-
-///////////////////////////
-// Oriented Point Stream //
-///////////////////////////
-template< typename Real , unsigned int Dim >
-struct InputSampleStream : public BaseInputSampleStream< Real , Dim >
+namespace PoissonRecon
 {
-	// Functionality to reset the stream to the start
-	virtual void reset( void ) = 0;
-
-	// Functionality to extract the next position/normal pair.
-	// The method returns true if there was another point in the stream to read, and false otherwise
-	virtual bool base_read( Position< Real , Dim > &p , Normal< Real , Dim > &n ) = 0;
-	// Implementation of InputDataStream::read
-	bool base_read( BaseSample< Real , Dim > &s ){ return base_read( s.template get<0>() , s.template get<1>() ); }
-};
-
-///////////////////////////////////
-// Oriented Point w/ Data Stream //
-///////////////////////////////////
-template< typename Real , unsigned int Dim , typename Data >
-struct InputSampleWithDataStream : public BaseInputSampleWithDataStream< Real , Dim , Data >
-{
-	// A constructor initialized with an instance of "zero" data
-	InputSampleWithDataStream( Data zero ) : _zero(zero) {}
-
-	// Functionality to reset the stream to the start
-	virtual void reset( void ) = 0;
-
-	// Returns the zero instance
-	const Data &zero( void ) const{ return _zero; }
-
-	// Functionality to extract the next position/normal pair.
-	// The method returns true if there was another point in the stream to read, and false otherwise
-	virtual bool base_read( Position< Real , Dim > &p , Normal< Real , Dim > &n , Data &d ) = 0;
-	bool base_read( BaseSampleWithData< Real , Dim , Data > &s ){ return base_read( s.template get<0>() , s.template get<1>().template get<0>() , s.template get<1>().template get<1>() ); }
-
-	// An instance of "zero" data
-	Data _zero;
-};
-
-
-///////////////////////////////////////
-// Transformed Oriented Point Stream //
-///////////////////////////////////////
-#ifdef DE_VIRTUALIZE_INPUT
-template< typename Real , unsigned int Dim , typename InputStream >
-#else // !DE_VIRTUALIZE_INPUT
-template< typename Real , unsigned int Dim >
-#endif // DE_VIRTUALIZE_INPUT
-struct TransformedInputSampleStream : public InputSampleStream< Real , Dim >
-{
-#ifdef DE_VIRTUALIZE_INPUT
-	static_assert( std::is_base_of< InputSampleStream< Real , Dim > , InputStream >::value , "[ERROR] Unexpected stream type" );
-#endif // DE_VIRTUALIZE_INPUT
-	// A constructor initialized with the transformation to be applied to the samples, and a sample stream
-#ifdef DE_VIRTUALIZE_INPUT
-	TransformedInputSampleStream( XForm< Real , Dim+1 > xForm , InputStream &stream ) : _stream(stream) , _positionXForm(xForm)
-#else // !DE_VIRTUALIZE_INPUT
-	TransformedInputSampleStream( XForm< Real , Dim+1 > xForm , InputSampleStream< Real , Dim > &stream ) : _stream(stream) , _positionXForm(xForm)
-#endif // DE_VIRTUALIZE_INPUT
+	namespace Reconstructor
 	{
-		_normalXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( xForm.determinant() , 1./Dim );
-	}
+		template< typename Real , unsigned int Dim > using Position = Point< Real , Dim >;
+		template< typename Real , unsigned int Dim > using Normal   = Point< Real , Dim >;
+		template< typename Real , unsigned int Dim > using Gradient = Point< Real , Dim >;
+		template< typename Real > using Weight = Real;
+		template< typename Real > using Value = Real;
 
-	// Functionality to reset the stream to the start
-	void reset( void ){ _stream.reset(); }
+		////////////////////////
+		// Input stream types //
+		////////////////////////
 
-	// Functionality to extract the next position/normal pair.
-	// The method returns true if there was another point in the stream to read, and false otherwise
-	bool base_read( Position< Real , Dim > &p , Normal< Real , Dim > &n )
-	{
-		BaseSample< Real , Dim > s;
-		bool ret = _stream.read( s );
-		if( ret ) p = _positionXForm * s.template get<0>() , n = _normalXForm * s.template get<1>();
-		return ret;
-	}
+		template< typename Real , unsigned int Dim , typename ... Data > using InputSampleStream = InputDataStream< Point< Real , Dim > , Data ... >;
+		template< typename Real , unsigned int Dim , typename ... Data > struct TransformedInputSampleStream;
 
-protected:
-	// A reference to the underlying stream
-#ifdef DE_VIRTUALIZE_INPUT
-	InputStream &_stream;
-#else // !DE_VIRTUALIZE_INPUT
-	InputSampleStream< Real , Dim > &_stream;
-#endif // DE_VIRTUALIZE_INPUT
+		template< typename Real , unsigned int Dim , typename ... Data > using InputOrientedSampleStream = InputDataStream< Position< Real , Dim > , Normal< Real , Dim > , Data ... >;
+		template< typename Real , unsigned int Dim , typename ... Data > struct TransformedInputOrientedSampleStream;
 
-	// The affine transformation to be applied to the positions
-	XForm< Real , Dim+1 > _positionXForm;
-
-	// The linear transformation to be applied to the normals
-	XForm< Real , Dim > _normalXForm;
-};
-
-///////////////////////////////////////////////
-// Transformed Oriented Point w/ Data Stream //
-///////////////////////////////////////////////
-#ifdef DE_VIRTUALIZE_INPUT
-template< typename Real , unsigned int Dim , typename Data , typename InputStream >
-#else // !DE_VIRTUALIZE_INPUT
-template< typename Real , unsigned int Dim , typename Data >
-#endif // DE_VIRTUALIZE_INPUT
-struct TransformedInputSampleWithDataStream : public InputSampleWithDataStream< Real , Dim , Data >
-{
-#ifdef DE_VIRTUALIZE_INPUT
-	static_assert( std::is_base_of< InputSampleWithDataStream< Real , Dim , Data > , InputStream >::value , "[ERROR] Unexpected stream type" );
-#endif // DE_VIRTUALIZE_INPUT
-	// A constructor initialized with an instance of "zero" data
-#ifdef DE_VIRTUALIZE_INPUT
-	TransformedInputSampleWithDataStream( XForm< Real , Dim+1 > xForm , InputStream &stream ) : InputSampleWithDataStream< Real , Dim , Data >( stream.zero() ) , _stream(stream) , _positionXForm(xForm)
-#else // !DE_VIRTUALIZE_INPUT
-	TransformedInputSampleWithDataStream( XForm< Real , Dim+1 > xForm , InputSampleWithDataStream< Real , Dim , Data > &stream ) : InputSampleWithDataStream< Real , Dim , Data >( stream.zero() ) , _stream(stream) , _positionXForm(xForm)
-#endif // DE_VIRTUALIZE_INPUT
-	{
-		_normalXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( xForm.determinant() , 1./Dim );
-	}
-
-	// Functionality to reset the stream to the start
-	void reset( void ){ _stream.reset(); }
-
-	// Functionality to extract the next position/normal pair.
-	// The method returns true if there was another point in the stream to read, and false otherwise
-	bool base_read( Position< Real , Dim > &p , Normal< Real , Dim > &n , Data &d )
-	{
-		BaseSampleWithData< Real , Dim , Data > s( Position< Real , Dim >() , VectorTypeUnion< Real , Normal< Real , Dim > , Data  >( Normal< Real , Dim >() , _stream.zero() ) );
-		bool ret = _stream.read( s );
-		if( ret ) p = _positionXForm * s.template get<0>() , n = _normalXForm * s.template get<1>().template get<0>() , d = s.template get<1>().template get<1>();
-		return ret;
-	}
-
-protected:
-	// A reference to the underlying stream
-#ifdef DE_VIRTUALIZE_INPUT
-	InputStream &_stream;
-#else // !DE_VIRTUALIZE_INPUT
-	InputSampleWithDataStream< Real , Dim , Data > &_stream;
-#endif // DE_VIRTUALIZE_INPUT
-
-	// The affine transformation to be applied to the positions
-	XForm< Real , Dim+1 > _positionXForm;
-
-	// The linear transformation to be applied to the normals
-	XForm< Real , Dim > _normalXForm;
-};
+		template< typename Real , unsigned int Dim , typename ... Data > using InputValuedSampleStream = InputSampleStream< Real , Dim , Value< Real > , Data ... >;
+		template< typename Real , unsigned int Dim , typename ... Data > using TransformedInputValuedSampleStream = TransformedInputSampleStream< Real , Dim , Value< Real > , Data ... >;
 
 
-///////////////////
-// Vertex Stream //
-///////////////////
-template< typename Real , unsigned int Dim >
-struct OutputVertexStream : public BaseOutputVertexStream< Real , Dim >
-{
-	// Need to provide access to base write for counter support
-	using BaseOutputVertexStream< Real , Dim >::write;
+		/////////////////////////
+		// Output stream types //
+		/////////////////////////
 
-	// Functionality to insert the next vertex
-	virtual void base_write( Position< Real , Dim > p , Gradient< Real , Dim > g , Real w ) = 0;
-	void base_write( const BaseVertex< Real , Dim > &v ){ base_write( v.template get<0>() , v.template get<1>() , v.template get<2>() ); }
-};
+		template< typename Real , unsigned int Dim , typename ... Data > using OutputLevelSetVertexStream = OutputDataStream< Position< Real , Dim > , Gradient< Real , Dim > , Weight< Real > , Data ... >;
+		template< typename Real , unsigned int Dim , typename ... Data > struct TransformedOutputLevelSetVertexStream;
 
-///////////////////////////
-// Vertex w/ Data Stream //
-///////////////////////////
-template< typename Real , unsigned int Dim , typename Data >
-struct OutputVertexWithDataStream : public BaseOutputVertexWithDataStream< Real , Dim , Data >
-{
-	// Need to provide access to base write for counter support
-	using BaseOutputVertexWithDataStream< Real , Dim , Data >::write;
+		//////////////////
+		// Face streams //
+		//////////////////
+		template< unsigned int FaceDim , typename T=node_index_type > using Face = std::conditional_t< FaceDim==2 , std::vector< T > , std::conditional_t< FaceDim==1 , std::pair< T , T > , void * > >;
+		template< unsigned int FaceDim > using  InputFaceStream =  InputDataStream< Face< FaceDim > >;
+		template< unsigned int FaceDim > using OutputFaceStream = OutputDataStream< Face< FaceDim > >;
 
-	// Functionality to insert the next vertex
-	virtual void base_write( Position< Real , Dim > p , Gradient< Real , Dim > g , Real w , Data d ) = 0;
-	void base_write( const BaseVertexWithData< Real , Dim , Data > &v ){ return base_write( v.template get<0>() , v.template get<1>() , v.template get<2>() , v.template get<3>() ); }
-};
+		//////////////////////////////////////////////
+		// Information about the output vertex type //
+		//////////////////////////////////////////////
+		template< typename Real , unsigned int Dim , bool HasGradients , bool HasDensity , typename ... AxuDataFactories > struct OutputVertexInfo;
 
-///////////////////////////////
-// Transformed Vertex Stream //
-///////////////////////////////
-template< typename Real , unsigned int Dim >
-struct TransformedOutputVertexStream : public OutputVertexStream< Real , Dim >
-{
-	// A constructor initialized with the transformation to be applied to the samples, and a sample stream
-	TransformedOutputVertexStream( XForm< Real , Dim+1 > xForm , OutputVertexStream< Real , Dim > &stream ) : _stream(stream) , _positionXForm(xForm)
-	{
-		_gradientXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( xForm.determinant() , 1./Dim );
-	}
-
-	// Need to write the union to ensure that the counter gets set
-	void base_write( Position< Real , Dim > p , Normal< Real , Dim > g , Real w ){ _stream.write( BaseVertex< Real , Dim >( _positionXForm * p , _gradientXForm * g , w ) ); }
-
-protected:
-	// A reference to the underlying stream
-	OutputVertexStream< Real , Dim > &_stream;
-
-	// The affine transformation to be applied to the positions
-	XForm< Real , Dim+1 > _positionXForm;
-
-	// The linear transformation to be applied to the normals
-	XForm< Real , Dim > _gradientXForm;
-};
-
-
-///////////////////////////////////////
-// Transformed Vertex w/ Data Stream //
-///////////////////////////////////////
-template< typename Real , unsigned int Dim , typename Data >
-struct TransformedOutputVertexWithDataStream : public OutputVertexWithDataStream< Real , Dim , Data >
-{
-	// A constructor initialized with the transformation to be applied to the samples, and a sample stream
-	TransformedOutputVertexWithDataStream( XForm< Real , Dim+1 > xForm , OutputVertexWithDataStream< Real , Dim , Data > &stream ) : _stream(stream) , _positionXForm(xForm)
-	{
-		_gradientXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( xForm.determinant() , 1./Dim );
-	}
-
-	void base_write( Position< Real , Dim > p , Normal< Real , Dim > g , Real w , Data d ){ _stream.write( BaseVertexWithData< Real , Dim , Data >( _positionXForm * p , _gradientXForm * g , w , d ) ); }
-
-protected:
-	// A reference to the underlying stream
-	OutputVertexWithDataStream< Real , Dim , Data > &_stream;
-
-	// The affine transformation to be applied to the positions
-	XForm< Real , Dim+1 > _positionXForm;
-
-	// The linear transformation to be applied to the normals
-	XForm< Real , Dim > _gradientXForm;
-};
-
-///////////////////////////////////////////
-// A wrapper class to write out vertices //
-///////////////////////////////////////////
-template< typename Real , unsigned int Dim , typename Vertex >
-struct OutputVertexStreamWrapper : public OutputVertexStream< Real , Dim >
-{
-	virtual void set( Vertex &out , const BaseVertex< Real , Dim > &in ) = 0;
-
-	OutputVertexStreamWrapper( OutputDataStream< Vertex > &stream , Vertex out ) : _stream(stream) , _out(out) {}
-
-	void base_write( Position< Real , Dim > p , Normal< Real , Dim > g , Real w )
-	{
-		_in.template get<0>() = p;
-		_in.template get<1>() = g;
-		_in.template get<2>() = w;
-		set( _out , _in );
-		_stream.write( _out );
-	}
-protected:
-	OutputDataStream< Vertex > &_stream;
-	BaseVertex< Real , Dim > _in;
-	Vertex _out;
-};
-
-template< typename Real , unsigned int Dim , typename Data , typename Vertex >
-struct OutputVertexWithDataStreamWrapper : public OutputVertexWithDataStream< Real , Dim , Data >
-{
-	virtual void set( Vertex &out , const BaseVertexWithData< Real , Dim , Data > &in ) = 0;
-
-	OutputVertexWithDataStreamWrapper( OutputDataStream< Vertex > &stream , BaseVertexWithData< Real , Dim , Data > in , Vertex out ) : _stream(stream) , _in(in) , _out(out) {}
-
-	void base_write( Position< Real , Dim > p , Normal< Real , Dim > g , Real w , Data d )
-	{
-		_in.template get<0>() = p;
-		_in.template get<1>() = g;
-		_in.template get<2>() = w;
-		_in.template get<3>() = d;
-		set( _out , _in );
-		_stream.write( _out );
-	}
-protected:
-	OutputDataStream< Vertex > &_stream;
-	BaseVertexWithData< Real , Dim , Data > _in;
-	Vertex _out;
-};
-
-
-/////////////////////////////////////////////////////////////////////////////////
-// Output and the input polygon stream, backed either by a file or by a vector //
-/////////////////////////////////////////////////////////////////////////////////
-// [WARNING] These assume that the stream starts as write-only and after the reset method is invoked, the stream becomes read-only.
-
-struct OutputInputPolygonStream : public OutputPolygonStream , public InputPolygonStream
-{
-	// The streams for communicating the information
-	InputPolygonStream  * inStream;
-	OutputPolygonStream *outStream;
-
-	void reset( void ){ inStream->reset(); }
-	bool base_read( Polygon &p ){ return inStream->read(p); }
-	bool base_read( unsigned int t , Polygon &p ){ return inStream->read(t,p); }
-	void base_write( const Polygon &p ){ outStream->write(p); }
-	void base_write( unsigned int t , const Polygon &p ){ outStream->write(t,p); }
-
-	OutputInputPolygonStream( bool inCore , bool multi , std::string header="" )
-	{
-		size_t sz = std::thread::hardware_concurrency();
-
-		_backingVector = NULL;
-		_backingVectors.resize( sz , NULL );
-
-		_backingFile = NULL;
-		_backingFiles.resize( sz , NULL );
-
-		_inStreams.resize( sz , NULL );
-		_outStreams.resize( sz , NULL );
-
-		if( inCore )
+		//////////////////////////////////////////
+		// Transformed Input Sample Data Stream //
+		//////////////////////////////////////////
+		template< typename Real , unsigned int Dim , typename ... Data >
+		struct TransformedInputSampleStream : public InputSampleStream< Real , Dim , Data ... >
 		{
-			if( multi )
+			// A constructor initialized with the transformation to be applied to the samples, and a sample stream
+			TransformedInputSampleStream( XForm< Real , Dim+1 > xForm , InputSampleStream< Real , Dim , Data ... > &stream ) : _stream(stream) , _xForm(xForm) {}
+
+			// Functionality to reset the stream to the start
+			void reset( void ){ _stream.reset(); }
+
+			// Functionality to extract the next position/normal pair.
+			// The method returns true if there was another point in the stream to read, and false otherwise
+			bool read( Position< Real , Dim > &p , Data& ... d )
 			{
-				for( unsigned int i=0 ; i<sz ; i++ )
+				if( !_stream.read( p , d... ) ) return false;
+				p = _xForm * p;
+				return true;
+			}
+			bool read( unsigned int thread , Position< Real , Dim > &p , Data& ... d )
+			{
+				if( !_stream.read( thread , p , d... ) ) return false;
+				p = _xForm * p;
+				return true;
+			}
+
+		protected:
+			// A reference to the underlying stream
+			InputSampleStream< Real , Dim , Data ... > &_stream;
+
+			// The affine transformation to be applied to the positions
+			XForm< Real , Dim+1 > _xForm;
+		};
+
+		//////////////////////////////////////////////////
+		// Transformed Input Oriente Sample Data Stream //
+		//////////////////////////////////////////////////
+		template< typename Real , unsigned int Dim , typename ... Data >
+		struct TransformedInputOrientedSampleStream : public InputOrientedSampleStream< Real , Dim , Data ... >
+		{
+			// A constructor initialized with the transformation to be applied to the samples, and a sample stream
+			TransformedInputOrientedSampleStream( XForm< Real , Dim+1 > xForm , InputOrientedSampleStream< Real , Dim , Data ... > &stream ) : _stream(stream) , _positionXForm(xForm)
+			{
+				_normalXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( fabs( xForm.determinant() ) , 1./Dim );
+			}
+
+			// Functionality to reset the stream to the start
+			void reset( void ){ _stream.reset(); }
+
+			// Functionality to extract the next position/normal pair.
+			// The method returns true if there was another point in the stream to read, and false otherwise
+			bool read( Position< Real , Dim > &p , Normal< Real , Dim > &n , Data& ... d )
+			{
+				if( !_stream.read( p , n , d... ) ) return false;
+				p = _positionXForm * p , n = _normalXForm * n;
+				return true;
+			}
+			bool read( unsigned int thread , Position< Real , Dim > &p , Normal< Real , Dim > &n , Data& ... d )
+			{
+				if( !_stream.read( thread , p , n , d... ) ) return false;
+				p = _positionXForm * p , n = _normalXForm * n;
+				return true;
+			}
+
+		protected:
+			// A reference to the underlying stream
+			InputOrientedSampleStream< Real , Dim , Data ... > &_stream;
+
+			// The affine transformation to be applied to the positions
+			XForm< Real , Dim+1 > _positionXForm;
+
+			// The linear transformation to be applied to the normals
+			XForm< Real , Dim > _normalXForm;
+		};
+
+		//////////////////////////////////////
+		// Transformed Output Vertex Stream //
+		//////////////////////////////////////
+		template< typename Real , unsigned int Dim , typename ... Data >
+		struct TransformedOutputLevelSetVertexStream : public OutputLevelSetVertexStream< Real , Dim , Data ... >
+		{
+			// A constructor initialized with the transformation to be applied to the samples, and a sample stream
+			TransformedOutputLevelSetVertexStream( XForm< Real , Dim+1 > xForm , OutputLevelSetVertexStream< Real , Dim , Data ... > &stream ) : _stream(stream) , _positionXForm(xForm)
+			{
+				_gradientXForm = XForm< Real , Dim > ( xForm ).inverse().transpose() * (Real)pow( xForm.determinant() , 1./Dim );
+			}
+
+			// Need to write the union to ensure that the counter gets set
+			size_t write(                       const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > &w , const Data& ... d ){ return _stream.write(          _positionXForm * p , _gradientXForm * g , w , d... ); }
+			size_t write( unsigned int thread , const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > &w , const Data& ... d ){ return _stream.write( thread , _positionXForm * p , _gradientXForm * g , w , d... ); }
+			size_t size( void ) const { return _stream.size(); }
+
+		protected:
+			// A reference to the underlying stream
+			OutputLevelSetVertexStream< Real , Dim , Data ... > &_stream;
+
+			// The affine transformation to be applied to the positions
+			XForm< Real , Dim+1 > _positionXForm;
+
+			// The linear transformation to be applied to the normals
+			XForm< Real , Dim > _gradientXForm;
+		};
+
+
+		//////////////////////////////////
+		// File-backed streaming memory //
+		//////////////////////////////////
+		class FileBackedReadWriteStream
+		{
+		public:
+			struct FileDescription
+			{
+				FILE *fp;
+
+				FileDescription( FILE *fp ) : fp(fp) , _closeFile(false)
 				{
-					_backingVectors[i] = new std::vector< Polygon >();
-					_inStreams[i] = new VectorBackedInputDataStream< Polygon >( *_backingVectors[i] );
-					_outStreams[i] = new VectorBackedOutputDataStream< Polygon >( *_backingVectors[i] );
+					if( !this->fp )
+					{
+						this->fp = std::tmpfile();
+						_closeFile = true;
+						if( !this->fp ) MK_THROW( "Failed to open temporary file" );
+					}
 				}
-				inStream = new MultiInputDataStream< Polygon >( _inStreams );
-				outStream = new MultiOutputDataStream< Polygon >( _outStreams );
-			}
-			else
-			{
-				_backingVector = new std::vector< Polygon >();
+				~FileDescription( void ){ if( _closeFile ) fclose(fp); }
+			protected:
+#ifdef SHOW_WARNINGS
+#pragma message( "[WARNING] Probably can let the system handle closing the file" )
+#endif // SHOW_WARNINGS
+				bool _closeFile;
+			};
 
-				inStream = new VectorBackedInputDataStream< Polygon >( *_backingVector );
-				outStream = new VectorBackedOutputDataStream< Polygon >( *_backingVector );
-			}
-		}
-		else
+			FileBackedReadWriteStream( FILE *fp ) : _fd(fp) {}
+			bool write( ConstPointer(char) data , size_t size ){ return fwrite( data , sizeof(char) , size , _fd.fp )==size; }
+			bool read( Pointer(char) data , size_t size ){ return fread( data , sizeof(char) , size , _fd.fp )==size; }
+			void reset( void ){ fseek( _fd.fp , 0 , SEEK_SET ); }
+		protected:
+			FileDescription _fd;
+		};
+
+
+		//////////////////////////////////////////////////////////////////////////////
+		// Output and the input face stream, backed either by a file or by a vector //
+		//////////////////////////////////////////////////////////////////////////////
+		// [WARNING] These assume that the stream starts as write-only and after the reset method is invoked, the stream becomes read-only.
+
+		template< unsigned int FaceDim , bool InCore , bool Parallel >
+		struct OutputInputFaceStream
+			: public OutputFaceStream< FaceDim >
+			, public  InputFaceStream< FaceDim >
 		{
-			if( multi )
+			// The streams for communicating the information
+			InputFaceStream < FaceDim > * inStream;
+			OutputFaceStream< FaceDim > *outStream;
+
+			void reset( void ){ inStream->reset(); }
+			bool read(                  Face< FaceDim > &f ){ return inStream->read(  f); }
+			bool read( unsigned int t , Face< FaceDim > &f ){ return inStream->read(t,f); }
+			size_t write(                  const Face< FaceDim > &f ){ return outStream->write(  f); }
+			size_t write( unsigned int t , const Face< FaceDim > &f ){ return outStream->write(t,f); }
+			size_t size( void ) const { return outStream->size(); }
+
+			OutputInputFaceStream( void )
 			{
-				for( unsigned int i=0 ; i<sz ; i++ )
+				size_t sz = std::thread::hardware_concurrency();
+
+				_backingVectors.resize( sz , nullptr );
+
+				_backingFiles.resize( sz , nullptr );
+
+				_inStreams.resize( sz , nullptr );
+				_outStreams.resize( sz , nullptr );
+
+				if constexpr( InCore )
 				{
-					_backingFiles[i] = new FileBackedReadWriteStream::FileDescription( header.c_str() );
-					_inStreams[i] = new FileBackedInputDataStream< Polygon >( _backingFiles[i]->fp );
-					_outStreams[i] = new FileBackedOutputDataStream< Polygon >( _backingFiles[i]->fp );
-				}
-				inStream = new MultiInputDataStream< std::vector< node_index_type > >( _inStreams );
-				outStream = new MultiOutputDataStream< std::vector< node_index_type > >( _outStreams );
-			}
-			else
-			{
-				_backingFile = new FileBackedReadWriteStream::FileDescription( header.c_str() );
-
-				inStream = new FileBackedInputDataStream< Polygon >( _backingFile->fp );
-				outStream = new FileBackedOutputDataStream< Polygon >( _backingFile->fp );
-			}
-		}
-	}
-	~OutputInputPolygonStream( void )
-	{
-		size_t sz = std::thread::hardware_concurrency();
-
-		delete _backingVector;
-
-		if( _backingFile ) _backingFile->remove();
-		delete _backingFile;
-
-		for( unsigned int i=0 ; i<sz ; i++ )
-		{
-			delete _backingVectors[i];
-
-			if( _backingFiles[i] ) _backingFiles[i]->remove();
-			delete _backingFiles[i];
-
-			delete  _inStreams[i];
-			delete _outStreams[i];
-		}
-
-		delete  inStream;
-		delete outStream;
-	}
-protected:
-	std::vector< Polygon > *_backingVector;
-	FileBackedReadWriteStream::FileDescription *_backingFile;
-	std::vector< std::vector< Polygon > * > _backingVectors;
-	std::vector< FileBackedReadWriteStream::FileDescription * > _backingFiles;
-	std::vector<  InputDataStream< Polygon > * >  _inStreams;
-	std::vector< OutputDataStream< Polygon > * > _outStreams;
-};
-
-template< typename Factory >
-struct OutputInputFactoryTypeStream : public OutputDataStream< typename Factory::VertexType > , public InputDataStream< typename Factory::VertexType >
-{
-	typedef typename Factory::VertexType Vertex;
-	// The streams for communicating the information
-	InputDataStream < Vertex > * inStream;
-	OutputDataStream< Vertex > *outStream;
-
-	void reset( void ){ inStream->reset(); }
-	void base_write( const Vertex &v ){ outStream->write( v ); }
-	bool base_read( Vertex &v ){ return inStream->read( v ); }
-
-	OutputInputFactoryTypeStream( Factory &factory , bool inCore , bool multi , std::string header="" )
-	{
-		size_t sz = std::thread::hardware_concurrency();
-
-		_backingVector = NULL;
-		_backingVectors.resize( sz , NULL );
-
-		_backingFile = NULL;
-		_backingFiles.resize( sz , NULL );
-
-		_inStreams.resize( sz , NULL );
-		_outStreams.resize( sz , NULL );
-
-		if( inCore )
-		{
-			if( multi )
-			{
-				for( unsigned int i=0 ; i<sz ; i++ )
-				{
-					_backingVectors[i] = new std::vector< Vertex >();
-					_inStreams[i] = new VectorBackedInputDataStream< Vertex >( *_backingVectors[i] );
-					_outStreams[i] = new VectorBackedOutputDataStream< Vertex >( *_backingVectors[i] );
-				}
-				inStream = new MultiInputDataStream< Vertex >( _inStreams );
-				outStream = new MultiOutputDataStream< Vertex >( _outStreams );
-			}
-			else
-			{
-				_backingVector = new std::vector< Vertex >();
-
-				inStream = new VectorBackedInputDataStream< Vertex >( *_backingVector );
-				outStream = new VectorBackedOutputDataStream< Vertex >( *_backingVector );
-			}
-		}
-		else
-		{
-			if( multi )
-			{
-				for( unsigned int i=0 ; i<sz ; i++ )
-				{
-					_backingFiles[i] = new FileBackedReadWriteStream::FileDescription( header.c_str() );
-					_inStreams[i] = new FileBackedInputFactoryTypeStream< Factory >( _backingFiles[i]->fp , factory );
-					_outStreams[i] = new FileBackedOutputFactoryTypeStream< Factory >( _backingFiles[i]->fp , factory  );
-				}
-				inStream = new MultiInputDataStream< Vertex >( _inStreams );
-				outStream = new MultiOutputDataStream< Vertex >( _outStreams );
-			}
-			else
-			{
-				_backingFile = new FileBackedReadWriteStream::FileDescription( header.c_str() );
-
-				inStream = new FileBackedInputFactoryTypeStream< Factory >( _backingFile->fp , factory );
-				outStream = new FileBackedOutputFactoryTypeStream< Factory >( _backingFile->fp , factory );
-			}
-		}
-	}
-
-	~OutputInputFactoryTypeStream( void )
-	{
-		size_t sz = std::thread::hardware_concurrency();
-
-		delete _backingVector;
-		if( _backingFile ) _backingFile->remove();
-		delete _backingFile;
-
-		for( unsigned int i=0 ; i<sz ; i++ )
-		{
-			delete _backingVectors[i];
-
-			if( _backingFiles[i] ) _backingFiles[i]->remove();
-			delete _backingFiles[i];
-
-			delete  _inStreams[i];
-			delete _outStreams[i];
-		}
-
-		delete  inStream;
-		delete outStream;
-	}
-protected:
-	std::vector< Vertex > *_backingVector;
-	FileBackedReadWriteStream::FileDescription *_backingFile;
-	std::vector< std::vector< Vertex > * >_backingVectors;
-	std::vector< FileBackedReadWriteStream::FileDescription * > _backingFiles;
-	std::vector<  InputDataStream< Vertex > * >  _inStreams;
-	std::vector< OutputDataStream< Vertex > * > _outStreams;
-};
-
-template< typename Real , unsigned int Dim , bool HasGradients , bool HasDensity >
-struct OutputVertexInfo
-{
-	using Factory =
-		typename std::conditional
-		<
-			HasGradients ,
-			typename std::conditional
-			<
-				HasDensity ,
-				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > , VertexFactory::ValueFactory< Real > > ,
-				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > >
-			>::type ,
-			typename std::conditional
-			<
-				HasDensity ,
-				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::ValueFactory< Real > > ,
-				VertexFactory::PositionFactory< Real , Dim >
-			>::type
-		>::type;
-	using Vertex = typename Factory::VertexType;
-
-	static Factory GetFactory( void ){ return Factory(); }
-
-	struct StreamWrapper : public Reconstructor::OutputVertexStreamWrapper< Real , Dim , Vertex >
-	{
-		StreamWrapper( OutputDataStream< Vertex > &stream , Vertex out ) :
-			Reconstructor::OutputVertexStreamWrapper< Real , Dim , Vertex >( stream , out ){}
-		void set( Vertex &out , const Reconstructor::BaseVertex< Real , Dim > &in )
-		{
-			if constexpr( HasGradients || HasDensity )
-			{
-				out.template get<0>() = in.template get<0>();
-				if constexpr( HasGradients )
-				{
-					out.template get<1>() = in.template get<1>();
-					if constexpr( HasDensity ) out.template get<2>() = in.template get<2>();
+					if constexpr( Parallel )
+					{
+						for( unsigned int i=0 ; i<sz ; i++ )
+						{
+							_backingVectors[i] = new std::vector< Face< FaceDim > >();
+							_inStreams[i] = new VectorBackedInputDataStream< Face< FaceDim > >( *_backingVectors[i] );
+							_outStreams[i] = new VectorBackedOutputDataStream< Face< FaceDim > >( *_backingVectors[i] );
+						}
+						inStream = new MultiInputDataStream< Face< FaceDim > >( _inStreams );
+						outStream = new MultiOutputDataStream< Face< FaceDim > >( _outStreams );
+					}
+					else
+					{
+						_backingVector = new std::vector< Face< FaceDim > >();
+						inStream = new VectorBackedInputDataStream< Face< FaceDim > >( *_backingVector );
+						outStream = new VectorBackedOutputDataStream< Face< FaceDim > >( *_backingVector );
+					}
 				}
 				else
 				{
-					if constexpr( HasDensity ) out.template get<1>() = in.template get<2>();
+					if constexpr( Parallel )
+					{
+						for( unsigned int i=0 ; i<sz ; i++ )
+						{
+							_backingFiles[i] = new FileBackedReadWriteStream::FileDescription( NULL );
+							_inStreams[i] = new FileBackedInputDataStream< Face< FaceDim > >( _backingFiles[i]->fp );
+							_outStreams[i] = new FileBackedOutputDataStream< Face< FaceDim > >( _backingFiles[i]->fp );
+						}
+						inStream = new MultiInputDataStream< Face< FaceDim > >( _inStreams );
+						outStream = new MultiOutputDataStream< Face< FaceDim > >( _outStreams );
+					}
+					else
+					{
+						_backingFile = new FileBackedReadWriteStream::FileDescription( NULL );
+						inStream = new FileBackedInputDataStream< Face< FaceDim > >( _backingFile->fp );
+						outStream = new FileBackedOutputDataStream< Face< FaceDim > >( _backingFile->fp );
+					}
 				}
 			}
-			else out = in.template get<0>();
-		}
-	};
-};
 
-template< typename Real , unsigned int Dim , typename AuxDataFactory , bool HasGradients , bool HasDensity >
-struct OutputVertexWithDataInfo
-{
-	using Factory =
-		typename std::conditional
-		<
-			HasGradients ,
-			typename std::conditional
-			<
+			~OutputInputFaceStream( void )
+			{
+				size_t sz = std::thread::hardware_concurrency();
+
+				delete _backingVector;
+				delete _backingFile;
+
+				for( unsigned int i=0 ; i<sz ; i++ )
+				{
+					delete _backingVectors[i];
+					delete _backingFiles[i];
+					delete  _inStreams[i];
+					delete _outStreams[i];
+				}
+
+				delete  inStream;
+				delete outStream;
+			}
+		protected:
+			std::vector< Face< FaceDim > > *_backingVector = nullptr;
+			FileBackedReadWriteStream::FileDescription *_backingFile = nullptr;
+			std::vector< std::vector< Face< FaceDim > > * > _backingVectors;
+			std::vector< FileBackedReadWriteStream::FileDescription * > _backingFiles;
+			std::vector<  InputDataStream< Face< FaceDim > > * >  _inStreams;
+			std::vector< OutputDataStream< Face< FaceDim > > * > _outStreams;
+		};
+
+
+		template< typename Real , unsigned int Dim , typename Factory , bool InCore , bool Parallel , typename ... Data >
+		struct OutputInputFactoryTypeStream
+			: public OutputDataStream< Position< Real , Dim > , Gradient< Real , Dim > , Weight< Real > , Data ... >
+			, public InputDataStream< typename Factory::VertexType >
+		{
+			using Vertex = typename Factory::VertexType;
+
+			// The streams for communicating the information
+			using OutputStreamType = OutputDataStream< Vertex >;
+			using  InputStreamType =  InputDataStream< Vertex >;
+			OutputStreamType *outStream;
+			InputStreamType  * inStream;
+
+			void reset( void ){ inStream->reset(); }
+			size_t write( const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > &w , const Data& ... d )
+			{
+				Vertex v = _converter( p , g , w , d... );
+				return outStream->write( v );
+			}
+			size_t write( unsigned int thread , const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > &w , const Data& ... d )
+			{
+				Vertex v = _converter( p , g , w , d... );
+				return outStream->write( thread , v );
+			}
+			bool read(                       Vertex &v ){ return inStream->read(          v ); }
+			bool read( unsigned int thread , Vertex &v ){ return inStream->read( thread , v ); }
+
+			size_t size( void ) const { return outStream->size(); }
+
+			OutputInputFactoryTypeStream( Factory &factory , std::function< Vertex ( const Position< Real , Dim > & , const Gradient< Real , Dim > & , const Weight< Real > & , const Data & ...  ) > converter )
+				: _converter( converter )
+			{
+				size_t sz = std::thread::hardware_concurrency();
+
+				_backingVectors.resize( sz , nullptr );
+
+				_backingFiles.resize( sz , nullptr );
+
+				_inStreams.resize( sz , nullptr );
+				_outStreams.resize( sz , nullptr );
+
+				if constexpr( Parallel )
+				{
+					for( unsigned int i=0 ; i<sz ; i++ )
+					{
+						if constexpr( InCore )
+						{
+							_backingVectors[i] = new std::vector< std::pair< size_t , Vertex > >();
+							_outStreams[i] = new VectorBackedOutputIndexedDataStream< Vertex >( *_backingVectors[i] );
+							_inStreams[i] = new VectorBackedInputIndexedDataStream< Vertex >( *_backingVectors[i] );
+						}
+						else
+						{
+							_backingFiles[i] = new FileBackedReadWriteStream::FileDescription( NULL );
+							_outStreams[i] = new FileBackedOutputIndexedFactoryTypeStream< Factory >( _backingFiles[i]->fp , factory  );
+							_inStreams[i] = new FileBackedInputIndexedFactoryTypeStream< Factory >( _backingFiles[i]->fp , factory );
+						}
+					}
+					outStream = new DeInterleavedMultiOutputIndexedDataStream< Vertex >( _outStreams );
+					inStream = new InterleavedMultiInputIndexedDataStream< Vertex >( _inStreams );
+				}
+				else
+				{
+					if constexpr( InCore )
+					{
+						_backingVector = new std::vector< Vertex >();
+						outStream = new VectorBackedOutputDataStream< Vertex >( *_backingVector );
+						inStream = new VectorBackedInputDataStream< Vertex >( *_backingVector );
+					}
+					else
+					{
+						_backingFile = new FileBackedReadWriteStream::FileDescription( NULL );
+						outStream = new FileBackedOutputFactoryTypeStream< Factory >( _backingFile->fp , factory );
+						inStream = new FileBackedInputFactoryTypeStream< Factory >( _backingFile->fp , factory );
+					}
+				}
+			}
+
+			~OutputInputFactoryTypeStream( void )
+			{
+				size_t sz = std::thread::hardware_concurrency();
+
+				delete _backingVector;
+				delete _backingFile;
+
+				for( unsigned int i=0 ; i<sz ; i++ )
+				{
+					delete _backingVectors[i];
+					delete _backingFiles[i];
+					delete  _inStreams[i];
+					delete _outStreams[i];
+				}
+
+				delete  inStream;
+				delete outStream;
+				delete _inMultiStream;
+			}
+		protected:
+			std::function< Vertex ( const Position< Real , Dim > & , const Gradient< Real , Dim > & , const Weight< Real > & , const Data & ...  ) > _converter;
+			std::vector< Vertex > *_backingVector = nullptr;
+			FileBackedReadWriteStream::FileDescription *_backingFile = nullptr;
+			std::vector< std::vector< std::conditional_t< Parallel , std::pair< size_t , Vertex > , Vertex > > * >_backingVectors;
+			std::vector< FileBackedReadWriteStream::FileDescription * > _backingFiles;
+			std::vector< OutputIndexedDataStream< Vertex > * > _outStreams;
+			std::vector<  InputIndexedDataStream< Vertex > * >  _inStreams;
+			MultiInputIndexedDataStream< Vertex > *_inMultiStream = nullptr;
+		};
+
+		template< typename Real , unsigned int Dim , bool HasGradients , bool HasDensity >
+		struct OutputVertexInfo< Real , Dim , HasGradients , HasDensity >
+		{
+			using Factory =
+				typename std::conditional_t
+				<
+				HasGradients ,
+				typename std::conditional_t
+				<
+				HasDensity ,
+				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > , VertexFactory::ValueFactory< Real > > ,
+				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > >
+				> ,
+				typename std::conditional_t
+				<
+				HasDensity ,
+				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::ValueFactory< Real > > ,
+				VertexFactory::PositionFactory< Real , Dim >
+				>
+				>;
+			using Vertex = typename Factory::VertexType;
+
+			static Factory GetFactory( void ){ return Factory(); }
+
+			static Vertex Convert( const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > & w )
+			{
+				Vertex v;
+				if constexpr( !HasGradients && !HasDensity ) v = p;
+				else
+				{
+					v.template get<0>() = p;
+					if constexpr( HasGradients )
+					{
+						if constexpr( HasDensity ) v.template get<1>() = g , v.template get<2>() = w;
+						else                       v.template get<1>() = g;
+					}
+					else
+					{
+						if constexpr( HasDensity ) v.template get<1>() = w;
+					}
+				}
+				return v;
+			}
+		};
+
+		template< typename Real , unsigned int Dim , bool HasGradients , bool HasDensity , typename AuxDataFactory >
+		struct OutputVertexInfo< Real , Dim , HasGradients , HasDensity , AuxDataFactory >
+		{
+			using Factory =
+				typename std::conditional
+				<
+				HasGradients ,
+				typename std::conditional
+				<
 				HasDensity ,
 				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > , VertexFactory::ValueFactory< Real > , AuxDataFactory > ,
 				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::NormalFactory< Real , Dim > , AuxDataFactory >
-			>::type ,
-			typename std::conditional
-			<
+				>::type ,
+				typename std::conditional
+				<
 				HasDensity ,
 				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , VertexFactory::ValueFactory< Real > , AuxDataFactory > ,
 				VertexFactory::Factory< Real , VertexFactory::PositionFactory< Real , Dim > , AuxDataFactory >
-			>::type
-		>::type;
-	using AuxData = typename AuxDataFactory::VertexType;
+				>::type
+				>::type;
+			using AuxData = typename AuxDataFactory::VertexType;
 
-	using _Vertex = VectorTypeUnion< Real , Point< Real , Dim > , Point< Real , Dim > , Real , typename AuxDataFactory::VertexType >;
-	using Vertex = typename Factory::VertexType;
+			using _Vertex = DirectSum< Real , Point< Real , Dim > , Point< Real , Dim > , Real , typename AuxDataFactory::VertexType >;
+			using Vertex = typename Factory::VertexType;
 
-	static Factory GetFactory( AuxDataFactory auxDataFactory )
-	{
-		if constexpr( HasGradients )
-		{
-			if constexpr( HasDensity ) return Factory( VertexFactory::PositionFactory< Real , Dim >() , VertexFactory::NormalFactory< Real , Dim >() , VertexFactory::ValueFactory< Real >() , auxDataFactory );
-			else                       return Factory( VertexFactory::PositionFactory< Real , Dim >() , VertexFactory::NormalFactory< Real , Dim >() ,                                         auxDataFactory );
-		}
-		else
-		{
-			if constexpr( HasDensity ) return Factory( VertexFactory::PositionFactory< Real , Dim >() ,                                                VertexFactory::ValueFactory< Real >() , auxDataFactory );
-			else                       return Factory( VertexFactory::PositionFactory< Real , Dim >() ,                                                                                        auxDataFactory );
-		}
+			static Factory GetFactory( AuxDataFactory auxDataFactory )
+			{
+				if constexpr( HasGradients )
+				{
+					if constexpr( HasDensity ) return Factory( VertexFactory::PositionFactory< Real , Dim >() , VertexFactory::NormalFactory< Real , Dim >() , VertexFactory::ValueFactory< Real >() , auxDataFactory );
+					else                       return Factory( VertexFactory::PositionFactory< Real , Dim >() , VertexFactory::NormalFactory< Real , Dim >() ,                                         auxDataFactory );
+				}
+				else
+				{
+					if constexpr( HasDensity ) return Factory( VertexFactory::PositionFactory< Real , Dim >() ,                                                VertexFactory::ValueFactory< Real >() , auxDataFactory );
+					else                       return Factory( VertexFactory::PositionFactory< Real , Dim >() ,                                                                                        auxDataFactory );
+				}
+			}
+
+			static Vertex Convert( const Position< Real , Dim > &p , const Gradient< Real , Dim > &g , const Weight< Real > & w , const AuxData &data )
+			{
+				Vertex v;
+				v.template get<0>() = p;
+				if constexpr( HasGradients )
+				{
+					if constexpr( HasDensity ) v.template get<1>() = g , v.template get<2>() = w , v.template get<3>() = data;
+					else                       v.template get<1>() = g , v.template get<2>() = data;
+				}
+				else
+				{
+					if constexpr( HasDensity ) v.template get<1>() = w , v.template get<2>() = data;
+					else                       v.template get<1>() = data;
+				}
+				return v;
+			}
+		};
 	}
-
-	struct StreamWrapper : public Reconstructor::OutputVertexWithDataStreamWrapper< Real , Dim , AuxData , Vertex >
-	{
-		StreamWrapper( OutputDataStream< Vertex > &stream , Vertex out ) :
-			Reconstructor::OutputVertexWithDataStreamWrapper< Real , Dim , AuxData , Vertex >( stream , _Vertex() , out ){}
-
-		void set( Vertex &out , const Reconstructor::BaseVertexWithData< Real , Dim , AuxData > &in )
-		{
-			out.template get<0>() = in.template get<0>();
-			if constexpr( HasGradients )
-			{
-				out.template get<1>() = in.template get<1>();
-				if constexpr( HasDensity ) out.template get<2>() = in.template get<2>() , out.template get<3>() = in.template get<3>();
-				else out.template get<2>() = in.template get<3>();
-			}
-			else
-			{
-				if constexpr( HasDensity ) out.template get<1>() = in.template get<2>() , out.template get<2>() = in.template get<3>();
-				else out.template get<1>() = in.template get<3>();
-			}
-		}
-	};
-};
+}
 
 #endif // RECONSTRUCTORS_STREAMS_INCLUDED
